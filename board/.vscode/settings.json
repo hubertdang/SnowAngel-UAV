@@ -1,0 +1,22 @@
+{
+    // Treat all headers as C
+    "files.associations": {
+        "*.h": "c"
+    },
+
+    // Disable Microsoft C++ IntelliSense (clangd will handle it)
+    "C_Cpp.intelliSenseEngine": "disabled",
+    "C_Cpp.autocomplete": "Disabled",
+
+    // clangd path and arguments
+    "clangd.path": "clangd",
+    "clangd.arguments": [
+        "--compile-commands-dir=build"
+    ],
+
+    // Use clang-format for formatting C code
+    "[c]": {
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+        "editor.formatOnSave": true
+    }
+}

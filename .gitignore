@@ -1,3 +1,9 @@
+# ---- ignore CMake and clangd stuff ----
+/board/build/
+/board/.cache/
+
+# ---- GitHub-generated .gitignore for C ---- 
+
 # Prerequisites
 *.d
 
