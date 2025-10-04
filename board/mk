@@ -11,7 +11,7 @@
 
 set -e
 
-BUILD_DIR="board/build"
+BUILD_DIR="build/"
 EXECUTABLE="snow_angel_uav_app"
 
 show_help() {

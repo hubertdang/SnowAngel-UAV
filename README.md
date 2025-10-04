@@ -2,7 +2,7 @@
 
 ## UAV-Assisted Aerial Ice-Thickness Profiling
 
-<img src=common/images/SnowAngelUAV.jpg>
+<img src=common/images/SnowAngelUAV.jpg height="650" width="450" >
 
 ### Members
 
@@ -13,7 +13,7 @@
 
 ## Project Description
 
-Ice thickness profiling is crucial for skating, particularly on frozen lakes and rivers. For safe individual skiing on ice, the city of Ottawa recommends a minimum thickness of 15 cm
+Ice thickness profiling is crucial for skating, particularly on frozen lakes and rivers. For safe individual skating on ice, the city of Ottawa recommends a minimum thickness of 15 cm
 (6 inches) of clear, solid ice. This guideline applies only in cases of hockey games or group skating. Currently, two methods are used to measure ice thickness: an auger and a hot-wire ice
 thickness gauge. Both methods have some limitations in terms of applicability and accuracy. 
 

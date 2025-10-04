@@ -63,7 +63,7 @@ dkms.conf
 *.dwo
 
 # Vscode Files
-*.vscode/
+.vscode/
 
 # Mac-specific
 *.DS_Store
