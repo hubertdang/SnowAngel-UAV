@@ -1,16 +1,21 @@
 cmake_minimum_required(VERSION 3.16)
-project(snow_angel_uav_app C)
+project(snow_angel_uav_app C CXX)
 
 # Use C11
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+
+# Use C++17
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Export compile_commands.json for clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Collect all BSP source files
 file(GLOB BSP_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/bsp/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/bsp/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/bsp/*.cpp
 )
 
 # Create a static library for BSP
@@ -21,7 +26,8 @@ target_include_directories(bsp PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
 # Collect all app source files
 file(GLOB APP_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/app/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/app/*.cpp
 )
 
 # Create executable for the app
