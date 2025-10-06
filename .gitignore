@@ -1,6 +1,8 @@
 # ---- ignore CMake and clangd stuff ----
 /board/build/
 /board/.cache/
+compile_commands.json
+.cache/
 
 # ---- GitHub-generated .gitignore for C ---- 
 
@@ -59,3 +61,9 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Vscode Files
+.vscode/
+
+# Mac-specific
+*.DS_Store
