@@ -30,10 +30,10 @@ public:
     //                   risk exposing extra information to the application code.
 
     // Pure virtual functions enforce child class implementations
-    virtual int8_t sensor_init()  = 0;
-    virtual int8_t sensor_start() = 0;
-    virtual int8_t sensor_read(fmcw_waveform_data_t *data)  = 0;
-    virtual int8_t sensor_stop()  = 0;
+    virtual int8_t fmcw_radar_sensor_init()  = 0;
+    virtual int8_t fmcw_radar_sensor_start_tx_signal() = 0;
+    virtual int8_t fmcw_radar_sensor_read_rx_signal(fmcw_waveform_data_t *data) = 0;
+    virtual int8_t fmcw_radar_sensor_stop_tx_signal()  = 0;
 
     virtual ~FMCW_RADAR_SENSOR() {}
     // do not declare anything as private or protected
