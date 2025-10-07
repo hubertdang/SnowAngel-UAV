@@ -32,7 +32,7 @@ public:
     // Pure virtual functions enforce child class implementations
     virtual int8_t sensor_init()  = 0;
     virtual int8_t sensor_start() = 0;
-    virtual int8_t sensor_read(fmcw_waveform_data_t & data)  = 0;
+    virtual int8_t sensor_read(fmcw_waveform_data_t *data)  = 0;
     virtual int8_t sensor_stop()  = 0;
 
     virtual ~FMCW_RADAR_SENSOR() {}
