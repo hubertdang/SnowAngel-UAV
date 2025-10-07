@@ -3,6 +3,7 @@
 ## UAV-Assisted Aerial Ice-Thickness Profiling
 
 <img src=common/images/SnowAngelUAV.jpg height="650" width="450" >
+<img src=common/images/Sebastian_Stan_as_Bucky_Barnes.jpg height="650" width="450" >
 
 ### Members
 
