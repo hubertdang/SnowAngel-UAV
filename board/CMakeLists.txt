@@ -8,23 +8,23 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 # Export compile_commands.json for clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Public headers for BSP 
-include_directories(${CMAKE_SOURCE_DIR}/include)
-
 # Collect all BSP source files
 file(GLOB BSP_SOURCES
     ${CMAKE_SOURCE_DIR}/src/bsp/*.c
 )
 
-# Create a static library
+# Create a static library for BSP
 add_library(bsp STATIC ${BSP_SOURCES})
+
+# Tell CMake that anything linking bsp gets the include folder
+target_include_directories(bsp PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
 # Collect all app source files
 file(GLOB APP_SOURCES
     ${CMAKE_SOURCE_DIR}/src/app/*.c
 )
 
-# Create executable
+# Create executable for the app
 add_executable(${PROJECT_NAME} ${APP_SOURCES})
 
 # Link BSP library to app

@@ -1,0 +1,9 @@
+# Linux kernel coding style
+BasedOnStyle: LLVM
+IndentWidth: 8       # Kernel uses tabs, but clang-format handles tabs
+UseTab: ForIndentation
+ColumnLimit: 80
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AllowShortIfStatementsOnASingleLine: false
+BreakBeforeBraces: Linux
