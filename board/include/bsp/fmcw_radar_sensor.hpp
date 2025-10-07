@@ -10,10 +10,18 @@
  * Copyright 2025 SnowAngel-UAV
  */
 
-#ifndef SENSOR_H
-#define SENSOR_H
+#ifndef FMCW_RADAR_SENSOR_H
+#define FMCW_RADAR_SENSOR_H
 
-class SENSOR
+#include <cstdint>
+
+typedef struct fmcw_waveform_data
+{
+    // TODO Karran: change after deciding on waveform data structure
+    uint8_t raw_data[256];
+} fmcw_waveform_data_t;
+
+class FMCW_RADAR_SENSOR
 {
 public:
     // the following functions describe the public interface.
@@ -22,11 +30,13 @@ public:
     //                   risk exposing extra information to the application code.
 
     // Pure virtual functions enforce child class implementations
-    virtual int sensor_init() = 0;
-    virtual int sensor_read() = 0;
+    virtual int8_t sensor_init()  = 0;
+    virtual int8_t sensor_start() = 0;
+    virtual int8_t sensor_read(fmcw_waveform_data_t & data)  = 0;
+    virtual int8_t sensor_stop()  = 0;
 
-    virtual ~SENSOR() {}
+    virtual ~FMCW_RADAR_SENSOR() {}
     // do not declare anything as private or protected
 };
 
-#endif // #ifndef SENSOR_H
+#endif // #ifndef FMCW_RADAR_SENSOR_H
