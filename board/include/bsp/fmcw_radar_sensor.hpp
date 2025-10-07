@@ -1,0 +1,42 @@
+/**
+ * 
+ * Name: sensor.hpp
+ * Author: Karran Dhillon
+ * 
+ * This file describes the public interface to the sensor bsp layer.
+ * 
+ * Date: October 2025
+ * 
+ * Copyright 2025 SnowAngel-UAV
+ */
+
+#ifndef FMCW_RADAR_SENSOR_H
+#define FMCW_RADAR_SENSOR_H
+
+#include <cstdint>
+
+typedef struct fmcw_waveform_data
+{
+    // TODO Karran: change after deciding on waveform data structure
+    uint8_t raw_data[256];
+} fmcw_waveform_data_t;
+
+class FMCW_RADAR_SENSOR
+{
+public:
+    // the following functions describe the public interface.
+    // CAUTION! CAUTION! DO NOT describe the state or implementation of the sensor. 
+    // CAUTION! CAUTION! Please be wary if deciding to change the interface. You
+    //                   risk exposing extra information to the application code.
+
+    // Pure virtual functions enforce child class implementations
+    virtual int8_t fmcw_radar_sensor_init()  = 0;
+    virtual int8_t fmcw_radar_sensor_start_tx_signal() = 0;
+    virtual int8_t fmcw_radar_sensor_read_rx_signal(fmcw_waveform_data_t *data) = 0;
+    virtual int8_t fmcw_radar_sensor_stop_tx_signal()  = 0;
+
+    virtual ~FMCW_RADAR_SENSOR() {}
+    // do not declare anything as private or protected
+};
+
+#endif // #ifndef FMCW_RADAR_SENSOR_H
