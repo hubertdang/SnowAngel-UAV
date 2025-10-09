@@ -7,7 +7,7 @@ TabWidth: 4                 # Width of a tab character
 IndentWidth: 4              # Indentation level for nested blocks
 
 # Line length
-ColumnLimit: 80
+ColumnLimit: 100
 
 # Alignment options
 AlignConsecutiveAssignments: false
@@ -16,7 +16,10 @@ AlignConsecutiveDeclarations: false
 # Control flow formatting
 AllowShortIfStatementsOnASingleLine: false
 AllowShortLoopsOnASingleLine: false
-AllowShortFunctionsOnASingleLine: None
+AllowShortFunctionsOnASingleLine: Empty
 
 # Brace style
 BreakBeforeBraces: Allman
+
+# Access specifiers (public/private/protected)
+AccessModifierOffset: -4
