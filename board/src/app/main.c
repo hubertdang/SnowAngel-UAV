@@ -1,4 +1,5 @@
 #include "bsp/foo.h"
+#include "logging.h"
 #include <stdio.h>
 
 int main()
@@ -10,4 +11,8 @@ int main()
 	{
 		printf("hello");
 	}
+
+	logging_init();
+	logging_write(LOG_INFO, "Hello world log!");
+	logging_cleanup();
 }
