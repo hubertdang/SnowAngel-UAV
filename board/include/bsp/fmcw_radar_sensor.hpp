@@ -15,10 +15,15 @@
 
 #include <cstdint>
 
+#define FMCW_RADAR_FFT_SIZE 2048
+
 typedef struct fmcw_waveform_data
 {
-    // TODO Karran: change after deciding on waveform data structure
-    uint8_t raw_data[256];
+    // Size Calculation:
+    // '{"FFT:['                                                  //   7
+    // FMCW_RADAR_FFT_SIZE samples, each 2 decimal digits + comma // + 5*FMCW_RADAR_FFT_SIZE
+    // ']}\0'                                                     // + 3
+    char raw_fft_data[7 + (5*FMCW_RADAR_FFT_SIZE) + 3];
 } fmcw_waveform_data_t;
 
 class FMCW_RADAR_SENSOR
@@ -30,7 +35,7 @@ public:
     //                   risk exposing extra information to the application code.
 
     // Pure virtual functions enforce child class implementations
-    virtual int8_t fmcw_radar_sensor_init()  = 0;
+    virtual int8_t fmcw_radar_sensor_init() = 0;
     virtual int8_t fmcw_radar_sensor_start_tx_signal() = 0;
     virtual int8_t fmcw_radar_sensor_read_rx_signal(fmcw_waveform_data_t *data) = 0;
     virtual int8_t fmcw_radar_sensor_stop_tx_signal()  = 0;
