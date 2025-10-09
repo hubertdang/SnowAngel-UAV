@@ -25,7 +25,7 @@ enum log_level
 };
 
 int logging_init();
-void logging_write(enum log_level level, const char *msg);
+int logging_write(enum log_level level, const char *msg, ...);
 void logging_cleanup();
 
 #endif

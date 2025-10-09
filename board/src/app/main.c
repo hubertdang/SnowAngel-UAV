@@ -13,6 +13,7 @@ int main()
 	}
 
 	logging_init();
-	logging_write(LOG_INFO, "Hello world log!");
+	logging_write(LOG_INFO, "Hello world log! %d", 69);
+	logging_write(LOG_INFO, "Bye world log!");
 	logging_cleanup();
 }
