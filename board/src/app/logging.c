@@ -50,15 +50,15 @@ void logging_cleanup()
 		fclose(log_file);
 }
 
-int logging_write(enum log_level level, const char *fmt, ...)
+void logging_write(enum log_level level, const char *fmt, ...)
 {
 	if (log_file == NULL)
-		return -1;
+		return;
 
 	const char *prefix = logging_level_to_string(level);
 
 	if (prefix == NULL)
-		return -2;
+		return;
 
 	time_t now = time(NULL);
 	struct tm *curr_time = localtime(&now);
@@ -74,8 +74,6 @@ int logging_write(enum log_level level, const char *fmt, ...)
 	fprintf(log_file, "\n");
 
 	va_end(args);
-
-	return 0;
 }
 
 const char *logging_level_to_string(enum log_level level)
