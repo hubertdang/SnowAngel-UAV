@@ -1,8 +1,8 @@
 #!/bin/bash
 ##
 # Author: Karran Dhillon
-# 
-# Bash script to automate the build and run process 
+#
+# Bash script to automate the build and run process
 #
 # Date: October 2025
 #
@@ -22,11 +22,13 @@ show_help() {
     echo "Options:"
     echo "  --build-only    Only build the project, do not run the executable."
     echo "  --clean         Delete the build directory before building."
+    echo "  --radar-sim     Build with radar simulation"
     echo "  -h, --help      Show this help message and exit."
 }
 
 BUILD_ONLY=0
 CLEAN=0
+RADAR_SIM=0
 
 for arg in "$@"; do
     case $arg in
@@ -35,6 +37,9 @@ for arg in "$@"; do
             ;;
         --clean)
             CLEAN=1
+            ;;
+        --radar-sim)
+            RADAR_SIM=1
             ;;
         -h|--help)
             show_help
@@ -55,8 +60,12 @@ mkdir -p "$BUILD_DIR"
 # Navigate to build directory
 cd "$BUILD_DIR"
 
-# Run cmake
-cmake ..
+# Run cmake with desired compiler flags if requested
+if [[ $RADAR_SIM -eq 1 ]]; then
+    cmake -DRADAR_SIMULATION=ON ..
+else
+    cmake ..
+fi
 
 # Build the project
 make

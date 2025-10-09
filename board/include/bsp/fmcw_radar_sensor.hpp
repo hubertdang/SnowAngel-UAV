@@ -15,11 +15,22 @@
 
 #include <cstdint>
 
+//----------------------------------------------------------------
+#define FMCW_RADAR_FFT_SIZE 2048
+
 typedef struct fmcw_waveform_data
 {
-    // TODO Karran: change after deciding on waveform data structure
-    uint8_t raw_data[256];
+    // Size Calculation:
+    // '{"FFT":['                                                 //   8
+    // FMCW_RADAR_FFT_SIZE samples, each 2 decimal digits + comma // + 6*FMCW_RADAR_FFT_SIZE
+    // ']}\0'                                                     // + 3
+    #define FMCW_RADAR_MAX_DATA_SIZE (8 + (6*FMCW_RADAR_FFT_SIZE) + 3)
+
+    uint8_t raw_data[FMCW_RADAR_MAX_DATA_SIZE];
+    uint16_t fft_size;
 } fmcw_waveform_data_t;
+
+//----------------------------------------------------------------
 
 class FMCW_RADAR_SENSOR
 {
@@ -38,5 +49,9 @@ public:
     virtual ~FMCW_RADAR_SENSOR() {}
     // do not declare anything as private or protected
 };
+
+//----------------------------------------------------------------
+
+FMCW_RADAR_SENSOR* instantiate_fmcw_radar_sensor(uint8_t usb_port);
 
 #endif // #ifndef FMCW_RADAR_SENSOR_H

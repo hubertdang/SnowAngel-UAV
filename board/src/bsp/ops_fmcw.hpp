@@ -15,6 +15,7 @@
 
 #include "bsp/fmcw_radar_sensor.hpp"
 #include <cstdint>
+#include <string>
 
 class OPS_FMCW : public FMCW_RADAR_SENSOR
 {
@@ -26,6 +27,10 @@ public:
     int8_t fmcw_radar_sensor_start_tx_signal() override;
     int8_t fmcw_radar_sensor_stop_tx_signal()  override;
     ~OPS_FMCW() override {}
+private:
+    int8_t send_command(const char *cmd);
+    int8_t read_response(std::string *response);
+
 private:
     uint8_t usb_port;
 };
