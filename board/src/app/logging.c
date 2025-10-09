@@ -15,7 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define LOG_FILE_NAME "snow_angel_uav.log"
+#define LOG_FILE_NAME "./snow_angel_uav.log" /* located in board/build/ */
 
 static FILE *log_file;
 
@@ -31,7 +31,7 @@ int logging_init()
 	}
 
 	char log_file_path[512]; /* Big enough for file in home */
-	snprintf(log_file_path, sizeof(log_file_path), "%s/%s", home_dir, LOG_FILE_NAME);
+	snprintf(log_file_path, sizeof(log_file_path), "%s", LOG_FILE_NAME);
 
 	remove(log_file_path);
 

@@ -1,3 +1,6 @@
+# ---- ignore logs ----
+*.log
+
 # ---- ignore CMake and clangd stuff ----
 /board/build/
 /board/.cache/
