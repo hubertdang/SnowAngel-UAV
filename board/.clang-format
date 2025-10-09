@@ -1,9 +1,22 @@
-# Linux kernel coding style
+# Clang-Format configuration for SnowAngel-UAV
 BasedOnStyle: LLVM
-IndentWidth: 8       # Kernel uses tabs, but clang-format handles tabs
-UseTab: ForIndentation
+
+# Indentation
+UseTab: ForIndentation      # Use tabs instead of spaces
+TabWidth: 4                 # Width of a tab character
+IndentWidth: 4              # Indentation level for nested blocks
+
+# Line length
 ColumnLimit: 80
+
+# Alignment options
 AlignConsecutiveAssignments: false
 AlignConsecutiveDeclarations: false
+
+# Control flow formatting
 AllowShortIfStatementsOnASingleLine: false
-BreakBeforeBraces: Linux
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+
+# Brace style
+BreakBeforeBraces: Allman

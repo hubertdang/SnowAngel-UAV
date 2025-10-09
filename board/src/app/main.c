@@ -3,6 +3,11 @@
 
 int main()
 {
-    printf("Hello World!\n");
-    foo();
+	printf("Hello World!\n");
+	foo();
+
+	if (1)
+	{
+		printf("hello");
+	}
 }
