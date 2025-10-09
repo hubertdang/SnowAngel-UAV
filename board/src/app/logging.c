@@ -15,7 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define LOG_FILE_NAME "snow_angel_uav_logs.txt"
+#define LOG_FILE_NAME "snow_angel_uav.log"
 
 static FILE *log_file;
 
@@ -47,7 +47,10 @@ int logging_init()
 
 void logging_cleanup()
 {
-	fclose(log_file);
+	if (log_file)
+	{
+		fclose(log_file);
+	}
 }
 
 void logging_write(enum log_level level, const char *msg)
