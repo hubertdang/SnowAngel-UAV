@@ -31,8 +31,7 @@ int logging_init()
 	}
 
 	char log_file_path[512]; /* Big enough for file in home */
-	snprintf(log_file_path, sizeof(log_file_path), "%s/%s", home_dir,
-	         LOG_FILE_NAME);
+	snprintf(log_file_path, sizeof(log_file_path), "%s/%s", home_dir, LOG_FILE_NAME);
 
 	remove(log_file_path);
 
