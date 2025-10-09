@@ -73,4 +73,6 @@ const char *logging_level_to_string(enum log_level level)
 		return "[WARN] ";
 	else if (level == LOG_ERROR)
 		return "[ERROR] ";
+	else
+		return NULL;
 }
