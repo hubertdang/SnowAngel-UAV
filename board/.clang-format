@@ -5,6 +5,7 @@ BasedOnStyle: LLVM
 UseTab: ForIndentation      # Use tabs instead of spaces
 TabWidth: 4                 # Width of a tab character
 IndentWidth: 4              # Indentation level for nested blocks
+IndentExternBlock: false    # No indentation for extern "C" blocks
 
 # Line length
 ColumnLimit: 100

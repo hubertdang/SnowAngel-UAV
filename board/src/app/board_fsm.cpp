@@ -1,6 +1,6 @@
 /**
  *
- * Name: board_fsm.c
+ * Name: board_fsm.cpp
  * Author: Hubert Dang
  *
  * Implementation of the finite state machine logic for the drone subsystem
@@ -11,7 +11,7 @@
  * Copyright 2025 SnowAngel-UAV
  */
 
-#include "board_fsm.h"
+#include "board_fsm.hpp"
 
 #define INITIAL_STATE BOARD_STATE_IDLE
 

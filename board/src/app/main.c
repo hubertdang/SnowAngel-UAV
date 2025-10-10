@@ -1,4 +1,4 @@
-#include "board_fsm.h"
+#include "board_fsm.hpp"
 #include "bsp/foo.h"
 #include <stdio.h>
 
