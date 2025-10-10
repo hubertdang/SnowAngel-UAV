@@ -1,12 +1,12 @@
 #!/bin/bash
 ##
-# Author: Karran Dhillon
+#Author : Karran Dhillon
 #
-# Bash script to automate the build and run process
+#Bash script to automate the build and run process
 #
-# Date: October 2025
+#Date : October 2025
 #
-# Copyright 2025 SnowAngel-UAV
+#Copyright 2025 SnowAngel - UAV
 ##
 
 set -e
@@ -30,7 +30,8 @@ BUILD_ONLY=0
 CLEAN=0
 RADAR_SIM=0
 
-for arg in "$@"; do
+for arg in "$@";
+do
     case $arg in
         --build-only)
             BUILD_ONLY=1
@@ -54,20 +55,20 @@ if [[ $CLEAN -eq 1 ]]; then
     exit 0
 fi
 
-# Create build directory if it doesn't exist
+#Create build directory if it doesn't exist
 mkdir -p "$BUILD_DIR"
 
-# Navigate to build directory
+#Navigate to build directory
 cd "$BUILD_DIR"
 
-# Run cmake with desired compiler flags if requested
+#Run cmake with desired compiler flags if requested
 if [[ $RADAR_SIM -eq 1 ]]; then
     cmake -DRADAR_SIMULATION=ON ..
 else
     cmake ..
 fi
 
-# Build the project
+#Build the project
 make
 
 if [[ $BUILD_ONLY -eq 1 ]]; then
@@ -75,7 +76,7 @@ if [[ $BUILD_ONLY -eq 1 ]]; then
     exit 0
 fi
 
-# Run the executable
+#Run the executable
 if [ -f "$EXECUTABLE" ]; then
     echo "Running $EXECUTABLE..."
     ./"$EXECUTABLE"

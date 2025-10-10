@@ -24,13 +24,12 @@
  * Constructor for the OPS_FMCW class.
  * @param usb_port The USB port number where the radar sensor is connected.
  */
-OPS_FMCW::OPS_FMCW(uint8_t usb_port)
- : usb_port(usb_port)
+OPS_FMCW::OPS_FMCW(uint8_t usb_port) : usb_port(usb_port)
 {
 #ifdef RAND_SIMULATION
-    return;
+	return;
 #endif
-    // stub for now.
+	// stub for now.
 }
 
 /**
@@ -41,10 +40,10 @@ OPS_FMCW::OPS_FMCW(uint8_t usb_port)
 int8_t OPS_FMCW::fmcw_radar_sensor_init()
 {
 #ifdef RADAR_SIMULATION
-    return 0;
+	return 0;
 #endif
-    // stub for now.
-    return 0;
+	// stub for now.
+	return 0;
 }
 
 /**
@@ -55,10 +54,10 @@ int8_t OPS_FMCW::fmcw_radar_sensor_init()
 int8_t OPS_FMCW::fmcw_radar_sensor_start_tx_signal()
 {
 #ifdef RADAR_SIMULATION
-    return 0;
+	return 0;
 #endif
-    // stub for now
-    return 0;
+	// stub for now
+	return 0;
 }
 
 /**
@@ -70,31 +69,32 @@ int8_t OPS_FMCW::fmcw_radar_sensor_start_tx_signal()
 int8_t OPS_FMCW::fmcw_radar_sensor_read_rx_signal(fmcw_waveform_data_t *data)
 {
 #ifdef RADAR_SIMULATION
-    // use fake FFT data
-    // has peaks at 458.3 Hz and 550 Hz (10cm ice thickness)
-    // drone: 50cm above surface, 1.6ms chirp slope, 2048 samples, 220MHz bandwidth
+	// use fake FFT data
+	// has peaks at 458.3 Hz and 550 Hz (10cm ice thickness)
+	// drone: 50cm above surface, 1.6ms chirp slope, 2048 samples, 220MHz bandwidth
 
-    std::ifstream sim_file(RADAR_SIM_PATH);
-    if (!sim_file.is_open())
-    {
-        printf("Failed to open file: %s\n", RADAR_SIM_PATH);
-        return -1;
-    }
+	std::ifstream sim_file(RADAR_SIM_PATH);
+	if (!sim_file.is_open())
+	{
+		printf("Failed to open file: %s\n", RADAR_SIM_PATH);
+		return -1;
+	}
 
-    std::string line;
-    if (!std::getline(sim_file, line))
-    {
-        printf("Failed to read line from file: %s\n", RADAR_SIM_PATH);
-        sim_file.close();
-        return -1;
-    }
-    data->fft_size = FMCW_RADAR_FFT_SIZE;
-    std::snprintf(reinterpret_cast<char*>(data->raw_data), FMCW_RADAR_MAX_DATA_SIZE, "%s", line.c_str());
-    sim_file.close();
-    return 0;
+	std::string line;
+	if (!std::getline(sim_file, line))
+	{
+		printf("Failed to read line from file: %s\n", RADAR_SIM_PATH);
+		sim_file.close();
+		return -1;
+	}
+	data->fft_size = FMCW_RADAR_FFT_SIZE;
+	std::snprintf(reinterpret_cast<char *>(data->raw_data), FMCW_RADAR_MAX_DATA_SIZE, "%s",
+	              line.c_str());
+	sim_file.close();
+	return 0;
 #endif
-    // stub for now
-    return 0;
+	// stub for now
+	return 0;
 }
 
 /**
@@ -105,10 +105,10 @@ int8_t OPS_FMCW::fmcw_radar_sensor_read_rx_signal(fmcw_waveform_data_t *data)
 int8_t OPS_FMCW::fmcw_radar_sensor_stop_tx_signal()
 {
 #ifdef RADAR_SIMULATION
-    return 0;
+	return 0;
 #endif
-    // stub for now
-    return 0;
+	// stub for now
+	return 0;
 }
 
 //------------------------------ Helper Functions -------------------------------
@@ -118,10 +118,10 @@ int8_t OPS_FMCW::fmcw_radar_sensor_stop_tx_signal()
  *
  * @return Returns 0 on success, -1 on failure.
  */
-int8_t OPS_FMCW::send_command(const char * cmd)
+int8_t OPS_FMCW::send_command(const char *cmd)
 {
-    // stub for now.
-    return 0;
+	// stub for now.
+	return 0;
 }
 
 /**
@@ -133,8 +133,8 @@ int8_t OPS_FMCW::send_command(const char * cmd)
  */
 int8_t OPS_FMCW::read_response(std::string *response)
 {
-    // stub for now.
-    return 0;
+	// stub for now.
+	return 0;
 }
 
 /**
@@ -143,7 +143,7 @@ int8_t OPS_FMCW::read_response(std::string *response)
  *
  * @return Pointer to the instantiated FMCW_RADAR_SENSOR object.
  */
-FMCW_RADAR_SENSOR* instantiate_fmcw_radar_sensor(uint8_t usb_port)
+FMCW_RADAR_SENSOR *instantiate_fmcw_radar_sensor(uint8_t usb_port)
 {
-    return new OPS_FMCW(usb_port);
+	return new OPS_FMCW(usb_port);
 }

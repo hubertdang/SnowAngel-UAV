@@ -29,11 +29,11 @@ public:
 	~OPS_FMCW() override {}
 
 private:
-    int8_t send_command(const char *cmd);
-    int8_t read_response(std::string *response);
+	int8_t send_command(const char *cmd);
+	int8_t read_response(std::string *response);
 
 private:
-    uint8_t usb_port;
+	uint8_t usb_port;
 };
 
 #endif // #ifndef OPS_FMCW_H
