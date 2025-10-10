@@ -74,6 +74,7 @@ void logging_write(enum log_level level, const char *fmt, ...)
 	fprintf(log_file, "\n");
 
 	va_end(args);
+	fflush(log_file); /* make sure we don't lose logs if program crashes */
 }
 
 const char *logging_level_to_string(enum log_level level)
