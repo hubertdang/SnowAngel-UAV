@@ -1,3 +1,4 @@
+#include "board_fsm.h"
 #include "bsp/foo.h"
 #include <stdio.h>
 
@@ -6,8 +7,11 @@ int main()
 	printf("Hello World!\n");
 	foo();
 
-	if (1)
+	enum board_state current_state = board_fsm_start();
+
+	while (0)
 	{
-		printf("hello");
+		/* Other periodic tasks should be added here */
+		current_state = board_fsm_process(current_state);
 	}
 }
