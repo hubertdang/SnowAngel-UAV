@@ -1,0 +1,59 @@
+/**
+ *
+ * Name: board_fsm.hpp
+ * Author: Hubert Dang
+ *
+ * Private header for the finite state machine logic for the drone subsystem
+ * board.
+ *
+ * Date: October 2025
+ *
+ * Copyright 2025 SnowAngel-UAV
+ */
+
+#ifndef BOARD_FSM_H
+#define BOARD_FSM_H
+
+enum board_state
+{
+	BOARD_STATE_INVALID,
+	BOARD_STATE_IDLE,
+	BOARD_STATE_INIT,
+	BOARD_STATE_WAIT,
+	BOARD_STATE_READ,
+	BOARD_STATE_CLEANUP,
+	BOARD_STATE_FAULT
+};
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+/**
+ * board_fsm_start - start the board's state machine
+ *
+ * Executes the actions associated with the initial state and any outgoing transitions that
+ * occur. This function should only be called once to start the board state machine, and then
+ * never again.
+ *
+ * @return The next state
+ */
+enum board_state board_fsm_start();
+
+/**
+ * board_fsm_process - process a board state
+ *
+ * @param state The state to process
+ *
+ * Note that the next state is not always a different state.
+ *
+ * @return The next state
+ */
+enum board_state board_fsm_process(enum board_state state);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* BOARD_STATE_MACHINE_H */
