@@ -24,6 +24,17 @@ add_library(bsp STATIC ${BSP_SOURCES})
 # Tell CMake that anything linking bsp gets the include folder
 target_include_directories(bsp PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
+# Collect all common source files
+file(GLOB COMMON_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/common/*.c
+)
+
+# Create a static library for common
+add_library(common STATIC ${COMMON_SOURCES})
+
+# Tell CMake that anything linking common gets the include folder
+target_include_directories(common PUBLIC ${CMAKE_SOURCE_DIR}/include)
+
 # Collect all app source files
 file(GLOB APP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/*.c
@@ -33,5 +44,6 @@ file(GLOB APP_SOURCES
 # Create executable for the app
 add_executable(${PROJECT_NAME} ${APP_SOURCES})
 
-# Link BSP library to app
+# Link static libraries to app
 target_link_libraries(${PROJECT_NAME} PRIVATE bsp)
+target_link_libraries(${PROJECT_NAME} PRIVATE common)
