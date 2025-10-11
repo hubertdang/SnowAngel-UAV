@@ -3,14 +3,14 @@
  * Name: logging.c
  * Author: Hubert Dang
  *
- * This file implements logging functionality for the SnowAngel-UAV app.
+ * This file implements logging functionality for the SnowAngel-UAV board software.
  *
  * Date: October 2025
  *
  * Copyright 2025 SnowAngel-UAV
  */
 
-#include "logging.h"
+#include "common/logging.h"
 #include "time.h"
 #include <stdarg.h>
 #include <stdio.h>

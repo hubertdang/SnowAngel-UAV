@@ -1,6 +1,6 @@
 #include "bsp/foo.h"
 #include "common/common.h"
-#include "logging.h"
+#include "common/logging.h"
 #include <stdio.h>
 
 int main()
