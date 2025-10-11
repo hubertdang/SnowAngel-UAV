@@ -10,4 +10,9 @@
  * Copyright 2025 SnowAngel-UAV
  */
 
+#ifndef COMMON_H
+#define COMMON_H
+
 #define SUCCESS 0
+
+#endif /* COMMON_H */
