@@ -19,7 +19,23 @@
 #define RADAR_SIM_PATH "../sim/radar_ice_fft_data.sim"
 #endif
 
-//------------------------------ BSP Code ---------------------------------------
+//---------------------------------------------------------------------
+// static variable initialization
+OPS_FMCW *OPS_FMCW::instance = nullptr;
+
+/**
+ * Factory function to instantiate the FMCW radar sensor.
+ * @param usb_port The USB port number where the radar sensor is connected.
+ *
+ * @return Pointer to the instantiated FMCW_RADAR_SENSOR object.
+ */
+FMCW_RADAR_SENSOR *OPS_FMCW::get_fmcw_radar_instance(const uint8_t usb_port)
+{
+	if (instance == nullptr)
+		instance = new OPS_FMCW(usb_port);
+	return instance;
+}
+
 /**
  * Constructor for the OPS_FMCW class.
  * @param usb_port The USB port number where the radar sensor is connected.
@@ -135,15 +151,4 @@ int8_t OPS_FMCW::read_response(std::string *response)
 {
 	// stub for now.
 	return 0;
-}
-
-/**
- * Factory function to instantiate the FMCW radar sensor.
- * @param usb_port The USB port number where the radar sensor is connected.
- *
- * @return Pointer to the instantiated FMCW_RADAR_SENSOR object.
- */
-FMCW_RADAR_SENSOR *instantiate_fmcw_radar_sensor(uint8_t usb_port)
-{
-	return new OPS_FMCW(usb_port);
 }
