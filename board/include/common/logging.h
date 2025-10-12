@@ -37,8 +37,6 @@ int logging_init();
  * logging_cleanup - release logging resources
  *
  * This function should always be called when logging stops and before the program terminates.
- *
- * @return 0 on success, negative number on failure
  */
 void logging_cleanup();
 
@@ -50,8 +48,6 @@ void logging_cleanup();
  * @param ... Arguments corresponding to the format specifier in msg
  *
  * Logging must be initialized before calling this function.
- *
- * @return 0 on success, negative number on failure
  */
 void logging_write(enum log_level level, const char *msg, ...);
 
