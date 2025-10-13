@@ -1,18 +1,18 @@
 cmake_minimum_required(VERSION 3.16)
 project(snow_angel_uav_app C CXX)
 
-#Use C11
+# Use C11
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-#Use C++ 17
+# Use C++17
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-#Export compile_commands.json for clangd
+# Export compile_commands.json for clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-#Collect all BSP source files
+# Collect all BSP source files
 file(GLOB BSP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/bsp/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/bsp/*.cpp
@@ -23,6 +23,17 @@ add_library(bsp STATIC ${BSP_SOURCES})
 
 # Tell CMake that anything linking bsp gets the include folder
 target_include_directories(bsp PUBLIC ${CMAKE_SOURCE_DIR}/include)
+
+# Collect all common source files
+file(GLOB COMMON_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/common/*.c
+)
+
+# Create a static library for common
+add_library(common STATIC ${COMMON_SOURCES})
+
+# Tell CMake that anything linking common gets the include folder
+target_include_directories(common PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
 # Collect all app source files
 file(GLOB APP_SOURCES
@@ -41,5 +52,6 @@ endif()
 # Create executable for the app
 add_executable(${PROJECT_NAME} ${APP_SOURCES})
 
-# Link BSP library to app
+# Link static libraries to app
 target_link_libraries(${PROJECT_NAME} PRIVATE bsp)
+target_link_libraries(${PROJECT_NAME} PRIVATE common)
