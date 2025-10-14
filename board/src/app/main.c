@@ -1,5 +1,4 @@
 #include "board_fsm.hpp"
-#include "bsp/foo.h"
 #include "common/common.h"
 #include "common/logging.h"
 #include <stdio.h>
@@ -7,7 +6,6 @@
 int main()
 {
 	printf("Hello World!\n");
-	foo();
 
 	enum board_state current_state = board_fsm_start();
 
