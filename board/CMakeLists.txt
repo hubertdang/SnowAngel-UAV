@@ -41,6 +41,14 @@ file(GLOB APP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/*.cpp
 )
 
+# Add configurable build flags
+option(RADAR_SIMULATION "Enable RADAR simulation features" OFF)
+
+# if RADAR_SIMULATION is enabled, add the preprocessor directive
+if(RADAR_SIMULATION)
+    add_compile_definitions(RADAR_SIMULATION)
+endif()
+
 # Create executable for the app
 add_executable(${PROJECT_NAME} ${APP_SOURCES})
 
