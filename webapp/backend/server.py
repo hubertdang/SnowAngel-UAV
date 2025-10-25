@@ -25,6 +25,23 @@ class Flight(BaseModel):
     location: str
     notes: Optional[str] = None
 
+class RawMeasurement(BaseModel):
+    flight_id: int
+    timestamp: str
+    x: float
+    y: float
+    depth: float
+
+class CleanedMeasurement(BaseModel):
+    flight_id: int
+    raw_id: int
+    timestamp: str
+    x: float
+    y: float
+    thickness: float
+    quality_score: float
+
+
 # --- Helper function placeholder ---
 def process_uploaded_measurements(file: UploadFile, flight_id: int):
     """
@@ -41,6 +58,7 @@ def process_uploaded_measurements(file: UploadFile, flight_id: int):
 def root():
     return {"message": "Ice Measurement API is running"}
 
+# Flights
 @app.get("/flights")
 def get_flights():
     cur = conn.cursor()
@@ -92,8 +110,42 @@ def get_cleaned_by_flight(flight_id: int):
     if not rows:
         raise HTTPException(status_code=404, detail=f"No cleaned measurements found for flight_id={flight_id}")
 
+# Raw measurements
+def get_raw():
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM raw_measurements ORDER BY measurement_id;")
+    rows = cur.fetchall()
+    cur.close()
+    return [
+        {
+            "measurement_id": r[0],
+            "flight_id": r[1],
+            "timestamp": str(r[2]),
+            "x": r[3][0],
+            "y": r[3][1],
+            "depth": r[4],
+            "created_at": str(r[5])
+        } for r in rows
+    ]
 
-    # Format results as dictionaries
+def add_raw(data: RawMeasurement):
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO raw_measurements (flight_id, timestamp, coordinates, depth)
+           VALUES (%s, %s, point(%s, %s), %s)
+           RETURNING measurement_id;""",
+        (data.flight_id, data.timestamp, data.x, data.y, data.depth)
+    )
+    measurement_id = cur.fetchone()[0]
+    cur.close()
+    return {"measurement_id": measurement_id, "status": "added"}
+
+# Cleaned measurements
+def get_cleaned():
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM cleaned_measurements ORDER BY cleaned_id;")
+    rows = cur.fetchall()
+    cur.close()
     return [
         {
             "cleaned_id": r[0],
@@ -108,3 +160,15 @@ def get_cleaned_by_flight(flight_id: int):
         }
         for r in rows
     ]
+
+def add_cleaned(data: CleanedMeasurement):
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO cleaned_measurements (flight_id, raw_id, timestamp, coordinates, thickness, quality_score)
+           VALUES (%s, %s, %s, point(%s, %s), %s, %s)
+           RETURNING cleaned_id;""",
+        (data.flight_id, data.raw_id, data.timestamp, data.x, data.y, data.thickness, data.quality_score)
+    )
+    cleaned_id = cur.fetchone()[0]
+    cur.close()
+    return {"cleaned_id": cleaned_id, "status": "added"}
