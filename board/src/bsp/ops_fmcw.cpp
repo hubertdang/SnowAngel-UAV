@@ -152,3 +152,8 @@ int8_t OPS_FMCW::read_response(std::string *response)
 	// stub for now.
 	return 0;
 }
+
+FMCW_RADAR_SENSOR *instantiate_fmcw_radar_sensor(uint8_t usb_port)
+{
+	return OPS_FMCW::get_fmcw_radar_instance(usb_port);
+}
