@@ -1,6 +1,6 @@
 /**
  *
- * Name: sensor.hpp
+ * Name: fmcw_radar_sensor.hpp
  * Author: Karran Dhillon
  *
  * This file describes the public interface to the sensor bsp layer.
@@ -16,7 +16,12 @@
 #include <cstdint>
 
 //----------------------------------------------------------------
-#define FMCW_RADAR_FFT_SIZE 2048
+#define FMCW_RADAR_BUFFER_SIZE 512 // fft buffer size per chirp
+#define FMCW_RADAR_CT_MS 1.6       // chirp time
+#define FMCW_RADAR_FS_KHZ 320      // sample rate
+#define FMCW_RADAR_BW_MHZ 990      // chirp bandwidth (ramp length)
+#define FMCW_RADAR_FFT_SIZE 1024   // Size of FFT output data with zero-padding
+#define FMCW_RADAR_SLOPE (FMCW_RADAR_BW_MHZ * 1000000) / (FMCW_RADAR_CHIRP_TIME / 1000) // Hz/sec
 
 typedef struct fmcw_waveform_data
 {
@@ -25,9 +30,7 @@ typedef struct fmcw_waveform_data
 // FMCW_RADAR_FFT_SIZE samples, each 2 decimal digits + comma // + 6*FMCW_RADAR_FFT_SIZE
 // ']}\0'                                                     // + 3
 #define FMCW_RADAR_MAX_DATA_SIZE (8 + (6 * FMCW_RADAR_FFT_SIZE) + 3)
-
 	uint8_t raw_data[FMCW_RADAR_MAX_DATA_SIZE];
-	uint16_t fft_size;
 } fmcw_waveform_data_t;
 
 //----------------------------------------------------------------
