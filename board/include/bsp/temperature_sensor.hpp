@@ -15,7 +15,6 @@
 #define TEMP_SENSOR_H
 
 #include <cstdint>
-
 //----------------------------------------------------------------
 typedef struct temp_sensor_data
 {
@@ -39,6 +38,8 @@ public:
 	virtual ~TEMPERATURE_SENSOR() {}
 	// do not declare anything as private or protected
 };
+
+TEMPERATURE_SENSOR *instantiate_temperature_sensor(uint8_t i2c_addr);
 
 //----------------------------------------------------------------
 
