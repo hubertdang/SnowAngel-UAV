@@ -39,7 +39,7 @@ public:
 	int8_t temperature_sensor_init() override;
 	int8_t temperature_sensor_read(temp_sensor_data_t *data) override;
 
-	~ADAFRUIT_TM117() override {}
+	~ADAFRUIT_TM117() override;
 
 private:
 	// constructor is private to enforce factory function usage
