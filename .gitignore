@@ -70,6 +70,7 @@ dkms.conf
 
 # Mac-specific
 *.DS_Store
+*.swp
 
 # Backend files
 /webapp/backend/.env
