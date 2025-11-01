@@ -17,6 +17,12 @@
 #include <cstdint>
 #include <string>
 
+#define FMCW_RADAR_BUFFER_SIZE 512  // fft buffer size per chirp
+#define FMCW_RADAR_CT_MS       1.6  // chirp time
+#define FMCW_RADAR_FS_KHZ      320  // sample rate
+#define FMCW_RADAR_BW_MHZ      990  // chirp bandwidth (ramp length)
+#define FMCW_RADAR_SLOPE       (FMCW_RADAR_BW_MHZ * 1000000) / (FMCW_RADAR_CT_MS / 1000) // Hz/sec
+
 class OPS_FMCW : public FMCW_RADAR_SENSOR
 {
 public:

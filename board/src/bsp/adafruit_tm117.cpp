@@ -97,9 +97,9 @@ int8_t ADAFRUIT_TM117::temperature_sensor_read(temp_sensor_data_t *data)
 	return 0;
 }
 
-TEMPERATURE_SENSOR *instantiate_temperature_sensor(uint8_t i2c_addr)
+TEMPERATURE_SENSOR *instantiate_temperature_sensor()
 {
-	return ADAFRUIT_TM117::get_temperature_sensor_instance(i2c_addr);
+	return ADAFRUIT_TM117::get_temperature_sensor_instance(TMP117_I2C_ADDR);
 }
 
 ADAFRUIT_TM117::~ADAFRUIT_TM117()

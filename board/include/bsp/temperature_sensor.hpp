@@ -18,7 +18,7 @@
 //----------------------------------------------------------------
 typedef struct temp_sensor_data
 {
-	double temperature; // in celius to 2 decimal precision
+	double temperature; // in celcius to 2 decimal precision
 } temp_sensor_data_t;
 
 //----------------------------------------------------------------
