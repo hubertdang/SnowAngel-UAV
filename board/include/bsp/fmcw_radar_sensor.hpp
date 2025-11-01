@@ -50,6 +50,6 @@ public:
 
 //----------------------------------------------------------------
 
-FMCW_RADAR_SENSOR *instantiate_fmcw_radar_sensor(uint8_t usb_port);
+FMCW_RADAR_SENSOR *instantiate_fmcw_radar_sensor();
 
 #endif // #ifndef FMCW_RADAR_SENSOR_H
