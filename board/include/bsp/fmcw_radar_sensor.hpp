@@ -16,12 +16,7 @@
 #include <cstdint>
 
 //----------------------------------------------------------------
-#define FMCW_RADAR_BUFFER_SIZE 512 // fft buffer size per chirp
-#define FMCW_RADAR_CT_MS 1.6       // chirp time
-#define FMCW_RADAR_FS_KHZ 320      // sample rate
-#define FMCW_RADAR_BW_MHZ 990      // chirp bandwidth (ramp length)
 #define FMCW_RADAR_FFT_SIZE 1024   // Size of FFT output data with zero-padding
-#define FMCW_RADAR_SLOPE (FMCW_RADAR_BW_MHZ * 1000000) / (FMCW_RADAR_CHIRP_TIME / 1000) // Hz/sec
 
 typedef struct fmcw_waveform_data
 {
@@ -55,6 +50,6 @@ public:
 
 //----------------------------------------------------------------
 
-FMCW_RADAR_SENSOR *instantiate_fmcw_radar_sensor(uint8_t usb_port);
+FMCW_RADAR_SENSOR *instantiate_fmcw_radar_sensor();
 
 #endif // #ifndef FMCW_RADAR_SENSOR_H
