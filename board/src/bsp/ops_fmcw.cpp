@@ -103,7 +103,6 @@ int8_t OPS_FMCW::fmcw_radar_sensor_read_rx_signal(fmcw_waveform_data_t *data)
 		sim_file.close();
 		return -1;
 	}
-	data->fft_size = FMCW_RADAR_FFT_SIZE;
 	std::snprintf(reinterpret_cast<char *>(data->raw_data), FMCW_RADAR_MAX_DATA_SIZE, "%s",
 	              line.c_str());
 	sim_file.close();
