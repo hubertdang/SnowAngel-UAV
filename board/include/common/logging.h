@@ -13,6 +13,11 @@
 #ifndef LOGGING_H
 #define LOGGING_H
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 #define LOG_INFO_ENABLE 1
 #define LOG_WARN_ENABLE 1
 #define LOG_ERROR_ENABLE 1
@@ -50,5 +55,9 @@ void logging_cleanup();
  * Logging must be initialized before calling this function.
  */
 void logging_write(enum log_level level, const char *msg, ...);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
