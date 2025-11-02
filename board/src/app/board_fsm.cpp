@@ -58,24 +58,26 @@ enum board_state board_fsm_process(enum board_state state)
 
 enum board_state board_fsm_init()
 {
+	int rc;
+
 	start_switch = instantiate_start_switch();
-	if (start_switch->start_switch_init() != SUCCESS)
+	if ((rc = start_switch->start_switch_init()) != SUCCESS)
 	{
-		logging_write(LOG_ERROR, "Start switch init failed!");
+		logging_write(LOG_ERROR, "Start switch init failed! (err %d)", rc);
 		return BOARD_STATE_FAULT;
 	}
 
 	temp_sensor = instantiate_temperature_sensor();
-	if (temp_sensor->temperature_sensor_init() != SUCCESS)
+	if ((rc = temp_sensor->temperature_sensor_init()) != SUCCESS)
 	{
-		logging_write(LOG_ERROR, "Temperature sensor init failed!");
+		logging_write(LOG_ERROR, "Temperature sensor init failed! (err %d)", rc);
 		return BOARD_STATE_FAULT;
 	}
 
 	fmcw_radar_sensor = instantiate_fmcw_radar_sensor();
-	if (fmcw_radar_sensor->fmcw_radar_sensor_init() != SUCCESS)
+	if ((rc = fmcw_radar_sensor->fmcw_radar_sensor_init()) != SUCCESS)
 	{
-		logging_write(LOG_ERROR, "FMCW radar sensor init failed!");
+		logging_write(LOG_ERROR, "FMCW radar sensor init failed! (err %d)", rc);
 		return BOARD_STATE_FAULT;
 	}
 
