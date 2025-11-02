@@ -16,30 +16,19 @@
 
 enum board_state
 {
-	BOARD_STATE_INVALID,
+	BOARD_STATE_INIT, /* Initial state */
 	BOARD_STATE_IDLE,
-	BOARD_STATE_INIT,
 	BOARD_STATE_WAIT,
 	BOARD_STATE_READ,
+	BOARD_STATE_FAULT,
 	BOARD_STATE_CLEANUP,
-	BOARD_STATE_FAULT
+	BOARD_STATE_DONE
 };
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
-
-/**
- * board_fsm_start - start the board's state machine
- *
- * Executes the actions associated with the initial state and any outgoing transitions that
- * occur. This function should only be called once to start the board state machine, and then
- * never again.
- *
- * @return The next state
- */
-enum board_state board_fsm_start();
 
 /**
  * board_fsm_process - process a board state

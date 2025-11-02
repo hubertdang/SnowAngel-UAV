@@ -39,7 +39,7 @@ public:
 	// do not declare anything as private or protected
 };
 
-TEMPERATURE_SENSOR *instantiate_temperature_sensor(uint8_t i2c_addr);
+TEMPERATURE_SENSOR *instantiate_temperature_sensor();
 
 //----------------------------------------------------------------
 

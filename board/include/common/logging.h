@@ -52,7 +52,7 @@ void logging_cleanup();
  * @param msg The log message
  * @param ... Arguments corresponding to the format specifier in msg
  *
- * Logging must be initialized before calling this function.
+ * Logging should be initialized before calling this function.
  */
 void logging_write(enum log_level level, const char *msg, ...);
 
