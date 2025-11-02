@@ -2,24 +2,23 @@
 #include "common/common.h"
 #include "common/logging.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 int main()
 {
-	printf("Hello World!\n");
-
-	enum board_state current_state = board_fsm_start();
-
-	while (0)
-	{
-		/* Other periodic tasks should be added here */
-		current_state = board_fsm_process(current_state);
-	}
-
+	/* Logging init/cleanup is not handled by the board FSM because we want logging enabled
+	   for the duration of the entire FSM's lifespan. It is a unique exception. */
 	if (logging_init() != SUCCESS)
 	{
-		printf("Oh no!\n");
+		exit(EXIT_FAILURE);
 	}
-	logging_write(LOG_INFO, "Hello world log! %d", 69);
-	logging_write(LOG_INFO, "Bye world log!");
+
+	enum board_state current_state = BOARD_STATE_INIT;
+
+	do
+	{
+		current_state = board_fsm_process(current_state);
+	} while (current_state != BOARD_STATE_DONE);
+
 	logging_cleanup();
 }
