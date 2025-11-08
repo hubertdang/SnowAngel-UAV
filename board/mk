@@ -22,13 +22,17 @@ show_help() {
     echo "Options:"
     echo "  --build-only    Only build the project, do not run the executable."
     echo "  --clean         Delete the build directory before building."
-    echo "  --radar-sim     Build with radar simulation"
+    echo "  --radar-sim     Build with radar simulation."
+    echo "  --unittest      Build and run unit tests instead of the main application. Can be used with --build-only."
+    echo "      --test=<name>   Run only the named test executable (filename without extension)."
     echo "  -h, --help      Show this help message and exit."
 }
 
 BUILD_ONLY=0
 CLEAN=0
 RADAR_SIM=0
+UNITTEST=0
+TEST_NAME=""
 
 for arg in "$@";
 do
@@ -41,6 +45,12 @@ do
             ;;
         --radar-sim)
             RADAR_SIM=1
+            ;;
+        --unittest|--unit-test)
+            UNITTEST=1
+            ;;
+        --test=*)
+            TEST_NAME="${arg#--test=}"
             ;;
         -h|--help)
             show_help
@@ -63,9 +73,14 @@ cd "$BUILD_DIR"
 
 # Run cmake with desired compiler flags if requested
 if [[ $RADAR_SIM -eq 1 ]]; then
+    echo "Building radar simulation"
     cmake -DRADAR_SIMULATION=ON ..
+elif [[ $UNITTEST -eq 1 ]]; then
+    echo "Building unit tests"
+    cmake -DRADAR_SIMULATION=OFF -DBUILD_UNIT_TESTS=ON ..
 else
-    cmake ..
+    echo "Building Beta firmware"
+    cmake -DRADAR_SIMULATION=OFF -DBUILD_UNIT_TESTS=OFF ..
 fi
 
 # Build the project
@@ -76,11 +91,28 @@ if [[ $BUILD_ONLY -eq 1 ]]; then
     exit 0
 fi
 
-# Run the executable
-if [ -f "$EXECUTABLE" ]; then
-    echo "Running $EXECUTABLE..."
-    ./"$EXECUTABLE"
+# If unit tests were requested, run them via ctest
+if [[ $UNITTEST -eq 1 ]]; then
+    if command -v ctest >/dev/null 2>&1; then
+        echo "Running unit tests (ctest)..."
+        # If a specific test was requested, run only that test via regex match
+        if [[ -n "$TEST_NAME" ]]; then
+            echo "Running specific test: $TEST_NAME"
+            ctest -R "^${TEST_NAME}$" --output-on-failure || exit $?
+        else
+            ctest --output-on-failure || exit $?
+        fi
+    else
+        echo "ctest not found, cannot run unit tests."
+        exit 1
+    fi
 else
-    echo "Executable $EXECUTABLE not found!"
-    exit 1
+    # Run the main executable
+    if [ -f "$EXECUTABLE" ]; then
+        echo "Running $EXECUTABLE..."
+        ./$EXECUTABLE
+    else
+        echo "Executable $EXECUTABLE not found!"
+        exit 1
+    fi
 fi

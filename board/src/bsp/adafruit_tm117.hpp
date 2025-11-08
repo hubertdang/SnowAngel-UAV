@@ -16,9 +16,15 @@
 #include "bsp/temperature_sensor.hpp"
 #include <fcntl.h>
 #include <iostream>
-#include <linux/i2c-dev.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+
+#ifndef RADAR_SIMULATION
+	#include <linux/i2c-dev.h>
+#else
+	// dummy definition for simulation
+	#define I2C_SLAVE 0x0703
+#endif
 
 #define TMP117_I2C_ADDR 0x48
 #define TMP117_SDA_PIN 3 // GPIO2

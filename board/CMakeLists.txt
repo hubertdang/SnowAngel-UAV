@@ -41,12 +41,38 @@ file(GLOB APP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/app/*.cpp
 )
 
-# Add configurable build flags
+# Add configurable build flags here
 option(RADAR_SIMULATION "Enable RADAR simulation features" OFF)
+option(BUILD_UNIT_TESTS "Build unit tests" OFF)
 
 # if RADAR_SIMULATION is enabled, add the preprocessor directive
 if(RADAR_SIMULATION)
     add_compile_definitions(RADAR_SIMULATION)
+endif()
+
+# If requested, add a simple unit test executable. Tests can be plain programs
+# that implement a main() and use assert()/custom checks.
+if(BUILD_UNIT_TESTS)
+    enable_testing()
+
+    # Collect all unit test sources under board/unittest
+    file(GLOB UNIT_TEST_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/unittest/*.cpp
+    )
+
+    if(UNIT_TEST_SOURCES)
+        # Create one executable per test source file. This lets each test have
+        # its own main()
+        foreach(test_src IN LISTS UNIT_TEST_SOURCES)
+            get_filename_component(test_name ${test_src} NAME_WE)
+            add_executable(${test_name} ${test_src})
+            target_link_libraries(${test_name} PRIVATE bsp common)
+            target_include_directories(${test_name} PRIVATE ${CMAKE_SOURCE_DIR}/include)
+            add_test(NAME ${test_name} COMMAND ${test_name})
+        endforeach()
+    else()
+        message(WARNING "BUILD_UNIT_TESTS is ON but no test sources found in ${CMAKE_CURRENT_SOURCE_DIR}/unittest")
+    endif()
 endif()
 
 # Create executable for the app
