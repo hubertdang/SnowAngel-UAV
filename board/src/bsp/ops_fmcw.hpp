@@ -27,21 +27,19 @@
 //--------------------------------
 // General commands
 #define FMCW_CMD_INFO         "??" // gets module information (product name, serial number, firmware version)
-#define FMCW_CMD_FMCW_MODE    "GD" // only operate in FMCW mode (opposed to CW)
 
 // ADC/FFT configuration
 // 256 samples, 2048 FFT size, 80kHz sampling rate
 // 1.6ms chirp, (24.015GHz - 24.235GHz)
 // 8.52cm range resolution (mimum distance between two objects to be detected separately)
-#if FMCW_RADAR_FFT_SIZE == 2048
-    #define FMCW_CMD_SET_FFT_CFG  "x8" // sets ADC to 256 samples, 80kHz sampling rate
-#elif FMCW_RADAR_FFT_SIZE == 1024
-    #define FMCW_CMD_SET_FFT_CFG  "x4"
+#if FMCW_RADAR_FFT_SIZE == 512
+    #define FMCW_CMD_SET_FFT_CFG  "x2" // 512 samples, scaled by 2 with zero-padding
 #else
     #error "Unsupported FFT size"
 #endif
 
 #define FMCW_CMD_TURN_ON_FFT  "oF" // enables raw FFT output on serial port
+#define FMCW_CMD_TURN_OFF_FFT "of"
 #define FMCW_CMD_JSON_MODE    "OJ" // enables JSON output mode on serial port
 
 // I/O commands

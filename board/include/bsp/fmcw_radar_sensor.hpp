@@ -16,16 +16,14 @@
 #include <cstdint>
 
 //----------------------------------------------------------------
-#define FMCW_RADAR_FFT_SIZE 1024   // Size of FFT output data with zero-padding
+#define FMCW_RADAR_FFT_SIZE 512   // FFT is 1024 but 512 point symmetrical along y=0
 
 typedef struct fmcw_waveform_data
 {
 // Size Calculation:
-// '{"FFT":['                                                 //   8
-// FMCW_RADAR_FFT_SIZE samples, each 2 decimal digits + comma // + 6*FMCW_RADAR_FFT_SIZE
-// ']}\0'                                                     // + 3
-#define FMCW_RADAR_MAX_DATA_SIZE (8 + (6 * FMCW_RADAR_FFT_SIZE) + 3)
-	uint8_t raw_data[FMCW_RADAR_MAX_DATA_SIZE];
+// FMCW_RADAR_FFT_SIZE samples, each 5 digits + comma // + 6*FMCW_RADAR_FFT_SIZE
+//     Ex: 42432,12345,67890,... (512 samples total)
+	uint8_t raw_data[6 * FMCW_RADAR_FFT_SIZE];
 } fmcw_waveform_data_t;
 
 //----------------------------------------------------------------
