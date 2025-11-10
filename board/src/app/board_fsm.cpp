@@ -13,6 +13,7 @@
 
 #include "board_fsm.hpp"
 #include "bsp/fmcw_radar_sensor.hpp"
+#include "bsp/gps.hpp"
 #include "bsp/start_switch.hpp"
 #include "bsp/temperature_sensor.hpp"
 #include "common/common.h"
@@ -23,6 +24,7 @@
 START_SWITCH *start_switch = nullptr;
 TEMPERATURE_SENSOR *temp_sensor = nullptr;
 FMCW_RADAR_SENSOR *fmcw_radar_sensor = nullptr;
+GPS *gps = nullptr;
 
 enum board_state board_fsm_init();
 enum board_state board_fsm_idle();
@@ -81,6 +83,13 @@ enum board_state board_fsm_init()
 		return BOARD_STATE_FAULT;
 	}
 
+	gps = instantiate_gps();
+	if ((rc = gps->gps_init()) != SUCCESS)
+	{
+		logging_write(LOG_ERROR, "GPS module init failed! (err %d)", rc);
+		return BOARD_STATE_FAULT;
+	}
+
 	return BOARD_STATE_IDLE;
 }
 
@@ -117,6 +126,7 @@ enum board_state board_fsm_cleanup()
 	delete start_switch;
 	delete temp_sensor;
 	delete fmcw_radar_sensor;
+	delete gps;
 
 	return BOARD_STATE_DONE;
 }
