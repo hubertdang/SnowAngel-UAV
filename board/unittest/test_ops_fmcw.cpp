@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <unistd.h>
+#include <sstream>
 #include "bsp/fmcw_radar_sensor.hpp"
 
 int main(void)
@@ -34,7 +35,15 @@ int main(void)
     int8_t read_result = radar->fmcw_radar_sensor_read_rx_signal(&radar_data);
     assert(read_result == 0);
     assert(radar_data.raw_data[0] != 0); // check that some data is populated
-    printf("Raw FFT data obtained: %s\n", radar_data.raw_data);
+    printf("Raw FFT data obtained: \"%s\"\n", radar_data.raw_data);
+
+    int commas = 0;
+    for (int i = 0; radar_data.raw_data[i] != '\0'; ++i) {
+        if (radar_data.raw_data[i] == ',')
+            ++commas;
+    }
+    int count = commas + 1;
+    assert(count == 512); // Ensure we have 512 samples
 
     printf("All tests passed successfully.\n");
     return 0;

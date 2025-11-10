@@ -19,9 +19,8 @@
 #include <unistd.h>
 
 #ifdef RADAR_SIMULATION
-#include <fstream>
-
-#define RADAR_SIM_PATH "../sim/radar_ice_fft_data.sim"
+	#include <fstream>
+	#define RADAR_SIM_PATH "../sim/radar_ice_fft_data.sim"
 #endif
 
 //---------------------------------------------------------------------
@@ -64,9 +63,7 @@ int8_t OPS_FMCW::fmcw_radar_sensor_init()
 		return -1;
 	}
 
-	struct termios tty
-	{
-	};
+	struct termios tty = {0};
 	if (tcgetattr(fd, &tty) != 0)
 	{
 		printf("Failed to get current tty attributes with error: %s\n", strerror(errno));
@@ -84,11 +81,11 @@ int8_t OPS_FMCW::fmcw_radar_sensor_init()
 	tty.c_cc[VMIN] = 1;                         // read at least 1 char
 	tty.c_cc[VTIME] = 1;                        // or 0.1s read timeout
 
-	tty.c_iflag &= ~(IXON | IXOFF | IXANY); // turn off s/w flow control
-	tty.c_cflag |= (CLOCAL | CREAD);        // ignore modem controls
-	tty.c_cflag &= ~(PARENB | PARODD);      // no parity
-	tty.c_cflag &= ~CSTOPB;                 // 1 stop bit
-	tty.c_cflag &= ~CRTSCTS;                // no hw flow control
+	tty.c_iflag &= ~(IXON | IXOFF | IXANY);     // turn off s/w flow control
+	tty.c_cflag |= (CLOCAL | CREAD);            // ignore modem controls
+	tty.c_cflag &= ~(PARENB | PARODD);          // no parity
+	tty.c_cflag &= ~CSTOPB;                     // 1 stop bit
+	tty.c_cflag &= ~CRTSCTS;                    // no hw flow control
 
 	if (tcsetattr(fd, TCSANOW, &tty) != 0)
 	{
@@ -102,12 +99,12 @@ int8_t OPS_FMCW::fmcw_radar_sensor_init()
 	send_command(FMCW_CMD_TURN_ON_ADC);
 	send_command(FMCW_CMD_TURN_OFF_FFT);
 	send_command(FMCW_CMD_TURN_OFF_ADC);
+	usleep(1000000); // 100ms delay to let the configuration settle
 
-	usleep(1000000); // 100ms to let the configuration settle
 	// Query device information
 	std::string response;
 	query(FMCW_CMD_INFO, &response, 8);
-	printf("FMCW Radar Information: %s\n", response.c_str());
+	printf("FMCW radar information: %s\n", response.c_str());
 
 	// Setup radar for FFT data
 	send_command(FMCW_CMD_JSON_MODE);
@@ -129,7 +126,7 @@ int8_t OPS_FMCW::fmcw_radar_sensor_start_tx_signal()
 #ifdef RADAR_SIMULATION
 	return 0;
 #endif
-	send_command(FMCW_CMD_TURN_ON_FFT);
+	send_command(FMCW_CMD_TURN_ON_FFT); // starts continiously streaming FFT data
 	return 0;
 }
 
@@ -158,19 +155,21 @@ int8_t OPS_FMCW::fmcw_radar_sensor_read_rx_signal(fmcw_waveform_data_t *data)
 	{
 		printf("Failed to read line from file: %s\n", RADAR_SIM_PATH);
 		sim_file.close();
-		return -1;
+		return -2;
 	}
 	std::snprintf(reinterpret_cast<char *>(data->raw_data), FMCW_RADAR_MAX_DATA_SIZE, "%s",
 	              line.c_str());
 	sim_file.close();
 	return 0;
 #endif
-	tcflush(fd, TCIFLUSH);
+	tcflush(fd, TCIFLUSH); // clear the input buffer of stale data
+
 	// Read the FFT data
-	for (int8_t i = 0; i < 10; i++) // 10 tries
+	for (int8_t i = 0; i < 10; i++)
 	{
 		std::string fft_data;
 		read_response(&fft_data);
+
 		std::string pattern = "{\"FFT\":[";
 		size_t start = fft_data.find(pattern);
 		if (start != std::string::npos)
@@ -182,8 +181,8 @@ int8_t OPS_FMCW::fmcw_radar_sensor_read_rx_signal(fmcw_waveform_data_t *data)
 		if (end != std::string::npos)
 			fft_data.erase(end);
 		else
-			continue;
-		memcpy(data->raw_data, fft_data.c_str(), 6 * FMCW_RADAR_FFT_SIZE);
+			continue; // line not valid
+		memcpy(data->raw_data, fft_data.c_str(), FMCW_RADAR_MAX_DATA_SIZE);
 		return 0;
 	}
 	return -1;
@@ -250,6 +249,14 @@ int8_t OPS_FMCW::read_response(std::string *response)
 	return 0;
 }
 
+/**
+ * Sends a command to the radar sensor and reads the response.
+ * @param cmd The command string to send.
+ * @param response The string to store the response.
+ * @param num_lines The number of lines to read from the response. Default is 1
+ *
+ * @return Returns 0 on success, -1 on failure with failure code.
+ */
 int8_t OPS_FMCW::query(std::string cmd, std::string *response, uint8_t num_lines)
 {
 	tcflush(fd, TCIFLUSH); // flush the input buffer of stail data

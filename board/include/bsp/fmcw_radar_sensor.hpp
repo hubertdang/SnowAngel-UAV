@@ -23,7 +23,8 @@ typedef struct fmcw_waveform_data
 // Size Calculation:
 // FMCW_RADAR_FFT_SIZE samples, each 5 digits + comma // + 6*FMCW_RADAR_FFT_SIZE
 //     Ex: 42432,12345,67890,... (512 samples total)
-	uint8_t raw_data[6 * FMCW_RADAR_FFT_SIZE];
+#define FMCW_RADAR_MAX_DATA_SIZE (6 * FMCW_RADAR_FFT_SIZE)
+	uint8_t raw_data[FMCW_RADAR_MAX_DATA_SIZE];
 } fmcw_waveform_data_t;
 
 //----------------------------------------------------------------
