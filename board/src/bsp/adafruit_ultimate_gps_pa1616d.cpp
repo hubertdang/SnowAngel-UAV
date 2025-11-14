@@ -67,6 +67,9 @@ GPS *ADAFRUIT_ULTIMATE_GPS_PA1616D::get_gps_instance()
  */
 int8_t ADAFRUIT_ULTIMATE_GPS_PA1616D::gps_init()
 {
+#ifdef RADAR_SIMULATION
+	return 0;
+#endif
 	fd = open(GPS_SERIAL_DEVICE, O_RDWR);
 	if (fd < 0)
 		return -1;
@@ -149,6 +152,9 @@ bool ADAFRUIT_ULTIMATE_GPS_PA1616D::configure_serial()
  */
 int8_t ADAFRUIT_ULTIMATE_GPS_PA1616D::gps_read(gps_data_t *data)
 {
+#ifdef RADAR_SIMULATION
+	return 0;
+#endif
 	if (fd < 0)
 		return -1;
 

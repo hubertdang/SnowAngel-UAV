@@ -95,9 +95,22 @@ enum board_state board_fsm_init()
 
 enum board_state board_fsm_idle()
 {
-	/* TODO: execute "entry/exit actions" and "do activities" */
-	/* TODO: execute "transition actions" going out of this state */
-	return BOARD_STATE_FAULT;
+	uint8_t rc;
+	uint8_t switch_val;
+
+	if ((rc = start_switch->start_switch_read(&switch_val)) != SUCCESS)
+	{
+		logging_write(LOG_ERROR, "Start switch read failed! (err %d)", rc);
+		return BOARD_STATE_FAULT;
+	}
+
+	if (switch_val == SWITCH_START)
+	{
+		logging_write(LOG_INFO, "Switch flipped to \"START\"");
+		return BOARD_STATE_WAIT;
+	}
+
+	return BOARD_STATE_IDLE;
 }
 
 enum board_state board_fsm_wait()
