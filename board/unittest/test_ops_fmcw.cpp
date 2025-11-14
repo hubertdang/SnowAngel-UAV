@@ -12,6 +12,8 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdint>
+#include <unistd.h>
+#include <sstream>
 #include "bsp/fmcw_radar_sensor.hpp"
 
 int main(void)
@@ -24,10 +26,24 @@ int main(void)
     int8_t init_result = radar->fmcw_radar_sensor_init();
     assert(init_result == 0);
 
+    int8_t start_tx_result = radar->fmcw_radar_sensor_start_tx_signal();
+    assert(start_tx_result == 0);
+
+    usleep(1000000); // 100ms sleep to give time to sensor to start
     // Test reading radar data
-    fmcw_waveform_data_t radar_data;
+    fmcw_waveform_data_t radar_data = {};
     int8_t read_result = radar->fmcw_radar_sensor_read_rx_signal(&radar_data);
     assert(read_result == 0);
+    assert(radar_data.raw_data[0] != 0); // check that some data is populated
+    printf("Raw FFT data obtained: \"%s\"\n", radar_data.raw_data);
+
+    int commas = 0;
+    for (int i = 0; radar_data.raw_data[i] != '\0'; ++i) {
+        if (radar_data.raw_data[i] == ',')
+            ++commas;
+    }
+    int count = commas + 1;
+    assert(count == 512); // Ensure we have 512 samples
 
     printf("All tests passed successfully.\n");
     return 0;

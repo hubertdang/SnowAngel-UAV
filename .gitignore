@@ -67,6 +67,7 @@ dkms.conf
 
 # Vscode Files
 .vscode/
+*.patch
 
 # Mac-specific
 *.DS_Store
