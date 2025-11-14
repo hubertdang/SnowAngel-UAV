@@ -19,8 +19,8 @@
 #include <unistd.h>
 
 #ifdef RADAR_SIMULATION
-	#include <fstream>
-	#define RADAR_SIM_PATH "../sim/radar_ice_fft_data.sim"
+#include <fstream>
+#define RADAR_SIM_PATH "../sim/radar_ice_fft_data.sim"
 #endif
 
 //---------------------------------------------------------------------
@@ -81,11 +81,11 @@ int8_t OPS_FMCW::fmcw_radar_sensor_init()
 	tty.c_cc[VMIN] = 1;                         // read at least 1 char
 	tty.c_cc[VTIME] = 1;                        // or 0.1s read timeout
 
-	tty.c_iflag &= ~(IXON | IXOFF | IXANY);     // turn off s/w flow control
-	tty.c_cflag |= (CLOCAL | CREAD);            // ignore modem controls
-	tty.c_cflag &= ~(PARENB | PARODD);          // no parity
-	tty.c_cflag &= ~CSTOPB;                     // 1 stop bit
-	tty.c_cflag &= ~CRTSCTS;                    // no hw flow control
+	tty.c_iflag &= ~(IXON | IXOFF | IXANY); // turn off s/w flow control
+	tty.c_cflag |= (CLOCAL | CREAD);        // ignore modem controls
+	tty.c_cflag &= ~(PARENB | PARODD);      // no parity
+	tty.c_cflag &= ~CSTOPB;                 // 1 stop bit
+	tty.c_cflag &= ~CRTSCTS;                // no hw flow control
 
 	if (tcsetattr(fd, TCSANOW, &tty) != 0)
 	{
@@ -157,7 +157,7 @@ int8_t OPS_FMCW::fmcw_radar_sensor_read_rx_signal(fmcw_waveform_data_t *data)
 		sim_file.close();
 		return -2;
 	}
-	std::snprintf(reinterpret_cast<char *>(data->raw_data), FMCW_RADAR_MAX_DATA_SIZE, "%s",
+	std::snprintf(reinterpret_cast<char *>(data->raw_data), sizeof(data->raw_data), "%s",
 	              line.c_str());
 	sim_file.close();
 	return 0;
@@ -165,24 +165,21 @@ int8_t OPS_FMCW::fmcw_radar_sensor_read_rx_signal(fmcw_waveform_data_t *data)
 	tcflush(fd, TCIFLUSH); // clear the input buffer of stale data
 
 	// Read the FFT data
-	for (int8_t i = 0; i < 10; i++)
+	for (int8_t i = 0; i < MAX_READ_ATTEMPTS; i++)
 	{
 		std::string fft_data;
 		read_response(&fft_data);
 
 		std::string pattern = "{\"FFT\":[";
 		size_t start = fft_data.find(pattern);
-		if (start != std::string::npos)
-			fft_data.erase(0, start + pattern.size());
-		else
+		if (start == std::string::npos)
 			continue; // line not valid
+		fft_data.erase(0, start + pattern.size());
 
 		size_t end = fft_data.find("]}");
-		if (end != std::string::npos)
-			fft_data.erase(end);
-		else
+		if (end == std::string::npos)
 			continue; // line not valid
-		memcpy(data->raw_data, fft_data.c_str(), FMCW_RADAR_MAX_DATA_SIZE);
+		memcpy(data->raw_data, fft_data.c_str(), sizeof(data->raw_data));
 		return 0;
 	}
 	return -1;
