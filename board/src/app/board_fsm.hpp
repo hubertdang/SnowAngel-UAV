@@ -41,6 +41,8 @@ extern "C"
  */
 enum board_state board_fsm_process(enum board_state state);
 
+const char *board_fsm_state_to_str(enum board_state state);
+
 #ifdef __cplusplus
 }
 #endif

@@ -33,12 +33,8 @@ enum board_state board_fsm_read();
 enum board_state board_fsm_fault();
 enum board_state board_fsm_cleanup();
 
-const char *board_fsm_state_to_str(enum board_state state);
-
 enum board_state board_fsm_process(enum board_state state)
 {
-	logging_write(LOG_INFO, "Processing %s", board_fsm_state_to_str(state));
-
 	switch (state)
 	{
 	case BOARD_STATE_INIT:
@@ -160,6 +156,8 @@ const char *board_fsm_state_to_str(enum board_state state)
 		return "BOARD_STATE_FAULT";
 	case BOARD_STATE_CLEANUP:
 		return "BOARD_STATE_CLEANUP";
+	case BOARD_STATE_DONE:
+		return "BOARD_STATE_DONE";
 	default:
 		return "BOARD_STATE_INVALID";
 	}
