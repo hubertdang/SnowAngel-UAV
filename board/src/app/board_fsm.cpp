@@ -127,7 +127,7 @@ enum board_state board_fsm_flying()
 {
 	/* GPS is noisy, so we require several consecutive stationary readings
 	 * before we can confidently say the drone is stationary. */
-	const int STATIONARY_READS_REQUIRED = 5;
+	const uint8_t STATIONARY_READS_REQUIRED = 5;
 	static uint8_t num_stationary_reads = 0;
 
 	static gps_data_t previous_gps_data{};
