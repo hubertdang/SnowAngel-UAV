@@ -18,8 +18,8 @@ enum board_state
 {
 	BOARD_STATE_INIT, /* Initial state */
 	BOARD_STATE_IDLE,
-	BOARD_STATE_WAIT,
-	BOARD_STATE_READ,
+	BOARD_STATE_FLYING,
+	BOARD_STATE_STATIONARY,
 	BOARD_STATE_FAULT,
 	BOARD_STATE_CLEANUP,
 	BOARD_STATE_DONE
@@ -30,15 +30,6 @@ extern "C"
 {
 #endif
 
-/**
- * board_fsm_process - process a board state
- *
- * @param state The state to process
- *
- * Note that the next state is not always a different state.
- *
- * @return The next state
- */
 enum board_state board_fsm_process(enum board_state state);
 
 const char *board_fsm_state_to_str(enum board_state state);
