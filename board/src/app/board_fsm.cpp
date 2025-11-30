@@ -22,14 +22,25 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
+#include <unistd.h>
 
-static constexpr double EARTH_RADIUS_METERS = 6371000.0;
-static constexpr double STOPPED_THRESHOLD_METERS = 0.5;
+constexpr const char *RAW_DATA_CSV = "./snow_angel_uav_raw.csv";
+
+constexpr int GPS_POLL_RATE = 15000;
+
+constexpr uint8_t STATIONARY_READS_REQUIRED = 5;
+constexpr double STOPPED_THRESHOLD_METERS = 0.5;
 
 START_SWITCH *start_switch = nullptr;
 TEMPERATURE_SENSOR *temp_sensor = nullptr;
 FMCW_RADAR_SENSOR *fmcw_radar_sensor = nullptr;
 GPS *gps = nullptr;
+
+std::ofstream raw_data_csv;
 
 enum board_state board_fsm_init();
 enum board_state board_fsm_idle();
@@ -100,6 +111,13 @@ enum board_state board_fsm_init()
 		return BOARD_STATE_FAULT;
 	}
 
+	raw_data_csv.open(RAW_DATA_CSV, std::ios::app);
+	if (!raw_data_csv.is_open())
+	{
+		logging_write(LOG_ERROR, "Failed to open %s", RAW_DATA_CSV);
+		return BOARD_STATE_FAULT;
+	}
+
 	return BOARD_STATE_IDLE;
 }
 
@@ -125,52 +143,51 @@ enum board_state board_fsm_idle()
 
 enum board_state board_fsm_flying()
 {
-	/* GPS is noisy, so we require several consecutive stationary readings
-	 * before we can confidently say the drone is stationary. */
-	const uint8_t STATIONARY_READS_REQUIRED = 5;
-	static uint8_t num_stationary_reads = 0;
-
-	static gps_data_t previous_gps_data{};
-	gps_data_t current_gps_data{};
-	double distance_moved_meters;
-
-	static bool has_previous_gps_data = false;
-
 	uint8_t rc;
+	uint8_t num_stationary_reads = 0;
+	double distance_moved_meters;
+	gps_data_t previous_gps_data{};
+	gps_data_t current_gps_data{};
 
-	if ((rc = gps->gps_read(&current_gps_data)) != SUCCESS)
+	/* Get initial coordinates */
+	if ((rc = gps->gps_read(&previous_gps_data)) != SUCCESS)
 	{
 		logging_write(LOG_ERROR, "GPS read failed! (err %d)", rc);
 		return BOARD_STATE_FAULT;
 	}
 
-	/* There is no valid previous data on first iteration, so skip to next */
-	if (!has_previous_gps_data)
+	/* Poll GPS to check if we've stopped flying */
+	while (true)
 	{
+		usleep(GPS_POLL_RATE);
+
+		if ((rc = gps->gps_read(&current_gps_data)) != SUCCESS)
+		{
+			logging_write(LOG_ERROR, "GPS read failed! (err %d)", rc);
+			return BOARD_STATE_FAULT;
+		}
+
+		distance_moved_meters = haversine(previous_gps_data.latitude, previous_gps_data.longitude,
+		                                  current_gps_data.latitude, current_gps_data.longitude);
 		previous_gps_data = current_gps_data;
-		has_previous_gps_data = true;
-		return BOARD_STATE_FLYING;
-	}
 
-	distance_moved_meters = haversine(previous_gps_data.latitude, previous_gps_data.longitude,
-	                                  current_gps_data.latitude, current_gps_data.longitude);
-	previous_gps_data = current_gps_data;
+		if (distance_moved_meters < STOPPED_THRESHOLD_METERS)
+		{
+			num_stationary_reads++;
+		}
+		else
+		{
+			/* Reset count in case we were stationary and started moving again */
+			num_stationary_reads = 0;
+		}
 
-	if (distance_moved_meters < STOPPED_THRESHOLD_METERS)
-	{
-		num_stationary_reads++;
-	}
-	else
-	{
-		/* Reset count in case we were stationary and started moving again */
-		num_stationary_reads = 0;
-	}
-
-	if (num_stationary_reads == STATIONARY_READS_REQUIRED)
-	{
-		logging_write(LOG_INFO, "Drone stopped moving");
-		num_stationary_reads = 0;
-		return BOARD_STATE_STATIONARY;
+		/* GPS is noisy, so we require several consecutive stationary readings
+		 * before we can confidently say the drone is stationary. */
+		if (num_stationary_reads == STATIONARY_READS_REQUIRED)
+		{
+			num_stationary_reads = 0;
+			return BOARD_STATE_STATIONARY;
+		}
 	}
 
 	return BOARD_STATE_FLYING;
@@ -178,9 +195,54 @@ enum board_state board_fsm_flying()
 
 enum board_state board_fsm_stationary()
 {
-	/* TODO: execute "entry/exit actions" and "do activities" */
-	/* TODO: execute "transition actions" going out of this state */
-	return BOARD_STATE_FAULT;
+	constexpr int NUM_RADAR_READS_PER_STOP = 10;
+	constexpr double GPS_DATA_PRECISION = 6; // Number of decimal places
+	constexpr double TMP_DATA_PRECISION = 2; // Number of decimal places
+
+	fmcw_radar_sensor->fmcw_radar_sensor_start_tx_signal();
+
+	gps_data_t gps_data;
+	temp_sensor_data_t tmp_data;
+	fmcw_waveform_data_t waveform_data;
+
+	int8_t rc;
+
+	for (int read_count = 0; read_count < NUM_RADAR_READS_PER_STOP; read_count++)
+	{
+		if ((rc = gps->gps_read(&gps_data)) != SUCCESS)
+		{
+			logging_write(LOG_ERROR, "GPS read failed! (err %d)", rc);
+			return BOARD_STATE_FAULT;
+		}
+
+		if ((rc = temp_sensor->temperature_sensor_read(&tmp_data)) != SUCCESS)
+		{
+			logging_write(LOG_ERROR, "Temperature sensor read failed! (err %d)", rc);
+			return BOARD_STATE_FAULT;
+		}
+
+		if ((rc = fmcw_radar_sensor->fmcw_radar_sensor_read_rx_signal(&waveform_data)) != SUCCESS)
+		{
+			logging_write(LOG_ERROR, "FMCW radar sensor read failed! (err %d)", rc);
+			return BOARD_STATE_FAULT;
+		}
+
+		/* TODO: add date-time */
+		std::ostringstream csv_line;
+		csv_line << std::fixed << std::setprecision(GPS_DATA_PRECISION) << gps_data.latitude << ","
+		         << gps_data.longitude << "," << std::setprecision(TMP_DATA_PRECISION)
+		         << tmp_data.temperature << ","
+		         << std::string(waveform_data.raw_data,
+		                        waveform_data.raw_data + sizeof(waveform_data.raw_data));
+		raw_data_csv << csv_line.str() << "\n";
+		raw_data_csv.flush();
+	}
+
+	fmcw_radar_sensor->fmcw_radar_sensor_stop_tx_signal();
+
+	/* TODO: Poll GPS to check if we've started flying */
+
+	return BOARD_STATE_FLYING;
 }
 
 enum board_state board_fsm_fault()
@@ -196,6 +258,9 @@ enum board_state board_fsm_cleanup()
 	delete temp_sensor;
 	delete fmcw_radar_sensor;
 	delete gps;
+
+	if (raw_data_csv.is_open())
+		raw_data_csv.close();
 
 	return BOARD_STATE_DONE;
 }
@@ -235,6 +300,7 @@ const char *board_fsm_state_to_str(enum board_state state)
  */
 double haversine(double lat1, double lon1, double lat2, double lon2)
 {
+	constexpr double EARTH_RADIUS_METERS = 6371000.0;
 	const double R = EARTH_RADIUS_METERS;
 
 	// convert degrees to radians
