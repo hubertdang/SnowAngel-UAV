@@ -11,7 +11,6 @@
  */
 
 #include "ops_fmcw.hpp"
-#include "common/logging.h"
 #include <cstdio>
 #include <cstring>
 #include <errno.h>
