@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -30,10 +31,11 @@
 
 constexpr const char *RAW_DATA_CSV = "./snow_angel_uav_raw.csv";
 
-constexpr int GPS_POLL_RATE = 15000;
+constexpr int GPS_POLL_RATE_USEC = 15000;
 
-constexpr uint8_t STATIONARY_READS_REQUIRED = 5;
 constexpr double STOPPED_THRESHOLD_METERS = 0.5;
+
+constexpr int STABLIZATION_TIME_USEC = 2000000;
 
 START_SWITCH *start_switch = nullptr;
 TEMPERATURE_SENSOR *temp_sensor = nullptr;
@@ -49,6 +51,10 @@ enum board_state board_fsm_stationary();
 enum board_state board_fsm_fault();
 enum board_state board_fsm_cleanup();
 
+int8_t wait_until_stationary();
+int8_t wait_until_flying();
+
+void persist_to_csv(double lat, double lon, double tmp, uint8_t *waveform, size_t waveform_len);
 double haversine(double lat1, double lon1, double lat2, double lon2);
 
 /**
@@ -141,9 +147,17 @@ enum board_state board_fsm_idle()
 	return BOARD_STATE_IDLE;
 }
 
-enum board_state board_fsm_flying()
+/**
+ * Wait until the drone becomes stationary. GPS is noisy, so we require several consecutive
+ * stationary readings before we can confidently say the drone is stationary.
+ *
+ * @return 0 on success, negative number otherwise.
+ */
+int8_t wait_until_stationary()
 {
-	uint8_t rc;
+	constexpr uint8_t STATIONARY_READS_REQUIRED = 5;
+
+	uint8_t rc = 0;
 	uint8_t num_stationary_reads = 0;
 	double distance_moved_meters;
 	gps_data_t previous_gps_data{};
@@ -153,18 +167,18 @@ enum board_state board_fsm_flying()
 	if ((rc = gps->gps_read(&previous_gps_data)) != SUCCESS)
 	{
 		logging_write(LOG_ERROR, "GPS read failed! (err %d)", rc);
-		return BOARD_STATE_FAULT;
+		return rc;
 	}
 
 	/* Poll GPS to check if we've stopped flying */
 	while (true)
 	{
-		usleep(GPS_POLL_RATE);
+		usleep(GPS_POLL_RATE_USEC);
 
 		if ((rc = gps->gps_read(&current_gps_data)) != SUCCESS)
 		{
 			logging_write(LOG_ERROR, "GPS read failed! (err %d)", rc);
-			return BOARD_STATE_FAULT;
+			return rc;
 		}
 
 		distance_moved_meters = haversine(previous_gps_data.latitude, previous_gps_data.longitude,
@@ -172,32 +186,96 @@ enum board_state board_fsm_flying()
 		previous_gps_data = current_gps_data;
 
 		if (distance_moved_meters < STOPPED_THRESHOLD_METERS)
-		{
 			num_stationary_reads++;
-		}
 		else
-		{
-			/* Reset count in case we were stationary and started moving again */
-			num_stationary_reads = 0;
-		}
+			num_stationary_reads = 0; // Reset because we started moving again
 
-		/* GPS is noisy, so we require several consecutive stationary readings
-		 * before we can confidently say the drone is stationary. */
 		if (num_stationary_reads == STATIONARY_READS_REQUIRED)
-		{
-			num_stationary_reads = 0;
-			return BOARD_STATE_STATIONARY;
-		}
+			break; // Drone is stationary
 	}
 
-	return BOARD_STATE_FLYING;
+	return SUCCESS;
+}
+
+/**
+ * Wait until the drone starts flying. GPS is noisy, so we require several consecutive
+ * flying readings before we can confidently say the drone is flying.
+ *
+ * @return 0 on success, negative number otherwise.
+ */
+int8_t wait_until_flying()
+{
+	constexpr uint8_t FLYING_READS_REQUIRED = 3;
+
+	uint8_t rc = 0;
+	uint8_t num_flying_reads = 0;
+	double distance_moved_meters;
+	gps_data_t previous_gps_data{};
+	gps_data_t current_gps_data{};
+
+	/* Get initial coordinates */
+	if ((rc = gps->gps_read(&previous_gps_data)) != SUCCESS)
+	{
+		logging_write(LOG_ERROR, "GPS read failed! (err %d)", rc);
+		return rc;
+	}
+
+	/* Poll GPS to check if we've started flying */
+	while (true)
+	{
+		usleep(GPS_POLL_RATE_USEC);
+
+		if ((rc = gps->gps_read(&current_gps_data)) != SUCCESS)
+		{
+			logging_write(LOG_ERROR, "GPS read failed! (err %d)", rc);
+			return rc;
+		}
+
+		distance_moved_meters = haversine(previous_gps_data.latitude, previous_gps_data.longitude,
+		                                  current_gps_data.latitude, current_gps_data.longitude);
+		previous_gps_data = current_gps_data;
+
+		if (distance_moved_meters >= STOPPED_THRESHOLD_METERS)
+			num_flying_reads++;
+		else
+			num_flying_reads = 0; // Reset because we stopped moving
+
+		if (num_flying_reads == FLYING_READS_REQUIRED)
+			break; // Drone is flying
+	}
+
+	return SUCCESS;
+}
+
+enum board_state board_fsm_flying()
+{
+	if (wait_until_stationary() != SUCCESS)
+		return BOARD_STATE_FAULT;
+	return BOARD_STATE_STATIONARY;
+}
+
+void persist_to_csv(double lat, double lon, double tmp, uint8_t *waveform, size_t waveform_len)
+{
+	constexpr double GPS_DATA_PRECISION = 6; // Number of decimal places
+	constexpr double TMP_DATA_PRECISION = 2; // Number of decimal places
+
+	auto now = std::time(nullptr);
+	auto tm = *std::localtime(&now);
+
+	std::ostringstream csv_line;
+	csv_line << std::put_time(&tm, "%Y-%m-%d %H:%M:%S") << "," << std::fixed
+	         << std::setprecision(GPS_DATA_PRECISION) << lat << "," << lon << ","
+	         << std::setprecision(TMP_DATA_PRECISION) << tmp << ","
+	         << std::string(waveform, waveform + waveform_len);
+	raw_data_csv << csv_line.str() << "\n";
+	raw_data_csv.flush();
 }
 
 enum board_state board_fsm_stationary()
 {
 	constexpr int NUM_RADAR_READS_PER_STOP = 10;
-	constexpr double GPS_DATA_PRECISION = 6; // Number of decimal places
-	constexpr double TMP_DATA_PRECISION = 2; // Number of decimal places
+
+	usleep(STABLIZATION_TIME_USEC); // Extra time to let the drone settle before transmitting radar
 
 	fmcw_radar_sensor->fmcw_radar_sensor_start_tx_signal();
 
@@ -207,6 +285,7 @@ enum board_state board_fsm_stationary()
 
 	int8_t rc;
 
+	/* Profile ice thickness */
 	for (int read_count = 0; read_count < NUM_RADAR_READS_PER_STOP; read_count++)
 	{
 		if ((rc = gps->gps_read(&gps_data)) != SUCCESS)
@@ -227,21 +306,14 @@ enum board_state board_fsm_stationary()
 			return BOARD_STATE_FAULT;
 		}
 
-		/* TODO: add date-time */
-		std::ostringstream csv_line;
-		csv_line << std::fixed << std::setprecision(GPS_DATA_PRECISION) << gps_data.latitude << ","
-		         << gps_data.longitude << "," << std::setprecision(TMP_DATA_PRECISION)
-		         << tmp_data.temperature << ","
-		         << std::string(waveform_data.raw_data,
-		                        waveform_data.raw_data + sizeof(waveform_data.raw_data));
-		raw_data_csv << csv_line.str() << "\n";
-		raw_data_csv.flush();
+		persist_to_csv(gps_data.latitude, gps_data.longitude, tmp_data.temperature,
+		               waveform_data.raw_data, sizeof(waveform_data.raw_data));
 	}
 
 	fmcw_radar_sensor->fmcw_radar_sensor_stop_tx_signal();
 
-	/* TODO: Poll GPS to check if we've started flying */
-
+	if (wait_until_flying() != SUCCESS)
+		return BOARD_STATE_FAULT;
 	return BOARD_STATE_FLYING;
 }
 
