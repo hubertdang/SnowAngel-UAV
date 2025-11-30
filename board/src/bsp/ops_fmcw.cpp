@@ -105,7 +105,7 @@ int8_t OPS_FMCW::fmcw_radar_sensor_init()
 	std::string response;
 	query(
 	    FMCW_CMD_INFO, &response,
-	    16); // inconsitent number of response lines (though there shoukd be 8), read 16 to be safe
+	    16); // inconsistent number of response lines (though there should be 8), read 16 to be safe
 	printf("FMCW radar information: %s\n", response.c_str());
 
 	// Setup radar for FFT data
