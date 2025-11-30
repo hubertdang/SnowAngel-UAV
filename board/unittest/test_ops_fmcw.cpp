@@ -29,7 +29,7 @@ int main(void)
     int8_t start_tx_result = radar->fmcw_radar_sensor_start_tx_signal();
     assert(start_tx_result == 0);
 
-    usleep(1000000); // 100ms sleep to give time to sensor to start
+    usleep(1000000); // 1s sleep to give time to sensor to start
     // Test reading radar data
     fmcw_waveform_data_t radar_data = {};
     int8_t read_result = radar->fmcw_radar_sensor_read_rx_signal(&radar_data);
@@ -44,6 +44,9 @@ int main(void)
     }
     int count = commas + 1;
     assert(count == 512); // Ensure we have 512 samples
+
+    int8_t stop_result = radar->fmcw_radar_sensor_stop_tx_signal();
+    assert(stop_result == 0);
 
     printf("All tests passed successfully.\n");
     return 0;
