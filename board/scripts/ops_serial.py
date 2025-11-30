@@ -15,12 +15,12 @@ Copyright 2025 SnowAngel-UAV
 
 import serial # pip install pyserial
 import time
-import re
 import json
 import os
-from typing import Optional, Callable
+from typing import Optional
 import numpy as np # pip install numpy
 import matplotlib.pyplot as plt # pip install matplotlib
+from scipy.signal import find_peaks # pip install scipy
 
 OUTPUT_FILE = "radar_data.json"
 
@@ -30,11 +30,18 @@ class OPS241B:
         time.sleep(0.5)
         print(f"[INFO] Connected to OPS241-B on {port} @ {baudrate} baud")
 
-        self.sampling_rate = 320000.0   # 320kHz
+        self.sampling_rate = 80000.0    # 80kHz
         self.c = 3e8                    # speed of light
         self.BW = 990e6                 # 990 MHz Bandwidth of FMCW chirp
         self.T_chirp = 1.6e-3           # 1.6 ms chirp duration
         self.S = self.BW / self.T_chirp # chirp slope (Hz/s)
+        N_full = 1024
+        N = 512 # FFT is symmetric, so full length is double
+
+        self.bin_spacing = self.sampling_rate / N_full # 320kHz / 1024 bins = 312.5 Hz/bin
+        self.freq_axis = np.arange(N) * self.bin_spacing # gives multiples of bin spacing (0 .. fs/2)
+        hz_to_m = self.c / (2 * self.S) # meters per Hz relative to chirp slope
+        self.range_axis = self.freq_axis * hz_to_m # Hz/m for each bin
 
     # --- Basic I/O helpers ---
     def send_command(self, cmd: str) -> None:
@@ -88,9 +95,10 @@ class OPS241B:
     def set_json_output(self, enable=True):
         self.send_command("OJ" if enable else "Oj")
 
-    def set_resolution(self, factor=2):
-        self.send_command("S<") # 512 buffer
-        self.send_command(f"x{factor}") # 512-zeroes
+    def set_resolution(self):
+        self.send_command("S(") # 128 buffer
+        time.sleep(1)
+        self.send_command("x8") # 1024 FFT
 
     def disable_fft_or_adc(self):
         self.send_command("of") # disable FFF
@@ -105,10 +113,10 @@ class OPS241B:
             if line:
                 print(line)
 
-    def get_fft_data(self) -> str:
+    def get_fft_data(self, skip_drain=False) -> str:
         """Fetch a single FFT data line."""
-        radar._drain()
-        time.sleep(1)
+        if not skip_drain:
+            radar._drain()
         end = time.time() + 0.5 # wait up to 0.5s
         while time.time() < end:
             line = self.read_line()[0]
@@ -119,7 +127,6 @@ class OPS241B:
     def get_adc_data(self) -> str:
         """Fetch a single ADC data line."""
         radar._drain()
-        time.sleep(1)
         end = time.time() + 0.5 # wait up to 0.5s
         while time.time() < end:
             line = self.read_line()[0]
@@ -144,29 +151,59 @@ class OPS241B:
             raise ValueError("No FFT data found in the JSON file.")
 
         fft_data = np.array(fft_data, dtype=float) # FFT data is already upper half only
-        N = len(fft_data) # FFT is symmetric, so full length is double
-        N_full = N * 2
-
-        # OPS241-B parameters
-        bin_spacing = self.sampling_rate / N_full
-        freq_axis = np.arange(N) * bin_spacing # gives multiples of bin spacing (0 .. fs/2)
-        hz_to_m = self.c / (2 * self.S)
-        range_axis = freq_axis * hz_to_m # Hz/m for each bin
-
-        mag = np.array(fft_data, dtype=float) # for dB plotting
-        mag_db = 20.0 * np.log10(mag + 1e-12)  # avoid log(0)
-
-        self.find_peak_frequency(fft_data, freq_axis, range_axis)
 
         plt.figure(figsize=(10, 6))
-        plt.plot(range_axis, fft_data)
+        plt.plot(self.range_axis, fft_data)
         plt.title("OPS241-B FFT Magnitude Spectrum")
         plt.xlabel("Range (m)")
         plt.ylabel("Magnitude")
         plt.grid(True)
         plt.show()
 
-        print(f"Plotted {N} FFT bins, bin spacing {bin_spacing:.1f} Hz")
+        print(f"Plotted FFT bins, bin spacing {self.bin_spacing:.1f} Hz")
+
+    def calculate_fft_raw_thickness(self, filename):
+        """
+        Calculate thickness from a .log file.
+        Expected format: 12.4,14.5,21.4,... (512, for each line
+        """
+        # Grab raw radar FFT data from JSON file
+        if not os.path.exists(filename):
+            raise FileNotFoundError(f"The file '{filename}' was not found.")
+        with open(filename, 'r') as file:
+            lines = file.readlines()
+            averages = []
+            for line in lines:
+                fft_data = line.strip().split(',')
+                averaged_fft = np.array(fft_data, dtype=float) # FFT data is already upper
+        
+                # Consider ranges between 0.1 m and 1 m only for peak detection
+                valid = (self.range_axis > 0.1) & (self.range_axis < 1)
+                valid_indices = np.where(valid)[0]
+
+                peaks, _ = find_peaks(
+                                    averaged_fft[valid_indices],
+                                    distance=2,                     # at least 2 bins apart (≈3.7 cm)
+                                    prominence=0.003*np.max(averaged_fft),
+                                    )
+                peaks = valid_indices[peaks]  # Convert back to original indices
+                peaks = np.sort(peaks)[:2]  # Get the two smallest peak indices (closest ranges)
+
+                # Get the top two peaks
+                if len(peaks) == 2:
+                    r1 = self.range_axis[peaks[0]]
+                    r2 = self.range_axis[peaks[1]]
+                    ice_thickness_m = (r2 - r1)
+                    averages.append(ice_thickness_m*100)
+                    print(f"[RESULT] Estimated thickness {ice_thickness_m*100:.2f} cm between top two peaks")
+                else:
+                    print("[WARNING] Less than two peaks found in the specified range.")
+                    if len(peaks) > 0:
+                        print(f"[INFO] Corresponding ranges (m): {self.range_axis[peaks]}")
+            if averages:
+                mean_thickness = np.mean(averages)
+                std_thickness = np.std(averages)
+                print(f"[FINAL RESULT] Mean estimated thickness over {len(averages)} samples: {mean_thickness:.2f} cm ± {std_thickness:.2f} cm")
 
     def find_peak_frequency(self, fft_mag, freqs, ranges) -> float:
         # ---- find strongest reflection ----
@@ -177,6 +214,54 @@ class OPS241B:
         print(f"[RESULT] Peak bin = {peak_bin}")
         print(f"[RESULT] Beat freq = {peak_freq:.1f} Hz")
         print(f"[RESULT] Estimated range = {peak_range*100:.1f} cm")
+
+    def average_fft(self, num_averages: int = 1):
+        """Fetch and average multiple FFT data sets."""
+        accumulated_fft = None
+        for i in range(num_averages):
+            line = self.get_fft_data(skip_drain=True) # no need to drain input buffer, slows down averaging
+            if line is None:
+                print(f"[WARNING] No FFT data received for average {i+1}")
+                continue
+            data = json.loads(line)
+            fft_data = np.array(data.get('FFT', []), dtype=float)
+            if accumulated_fft is None:
+                accumulated_fft = fft_data
+            else:
+                accumulated_fft += fft_data # element-wise addition
+
+        if accumulated_fft is not None:
+            averaged_fft = accumulated_fft / num_averages
+            print(f"[INFO] Completed averaging over {num_averages} FFT datasets")
+
+            # Consider ranges between 0.1 m and 1 m only for peak detection
+            valid = (self.range_axis > 0.1) & (self.range_axis < 1)
+            valid_indices = np.where(valid)[0]
+
+            peaks, _ = find_peaks(
+                                  averaged_fft[valid_indices],
+                                  distance=2,                     # at least 2 bins apart (≈3.7 cm)
+                                  prominence=0.003*np.max(averaged_fft),
+                                 )
+            peaks = valid_indices[peaks]  # Convert back to original indices
+            peaks = np.sort(peaks)[:2]  # Get the two smallest peak indices (closest ranges)
+
+            # Get the top two peaks
+            if len(peaks) == 2:
+                r1 = self.range_axis[peaks[0]]
+                r2 = self.range_axis[peaks[1]]
+                ice_thickness_m = (r2 - r1)
+                print(f"[RESULT] First peak at range {r1*100:.2f} cm")
+                print(f"[RESULT] Second peak at range {r2*100:.2f} cm")
+                print(f"[RESULT] Estimated thickness {ice_thickness_m*100:.2f} cm between top two peaks")
+            else:
+                print("[WARNING] Less than two peaks found in the specified range.")
+                if len(peaks) > 0:
+                    print(f"[INFO] Corresponding ranges (m): {self.range_axis[peaks]}")
+            return averaged_fft
+        else:
+            print("[ERROR] No FFT data was averaged.")
+            return None
 
     def continiously_find_peak_frequency(self):
         """Continuously fetch FFT data and find peak frequency."""
@@ -256,44 +341,38 @@ class OPS241B:
 
 # --- Example usage ---
 if __name__ == "__main__":
-    radar = OPS241B("/dev/tty.usbmodem21401")
+    radar = OPS241B("/dev/ttyACM0")
 
-    # Query module info safely
-    print("[INFO] Disabling continious straming for info query...")
-    radar.send_command("r>15") # set range to 10 m to reduce streaming load (i.e. stop reporting as often)
-    radar.disable_fft_or_adc()
-    time.sleep(0.5)
+    radar.calculate_fft_raw_thickness("../build/radar_fft.log")
 
-    # Configure for meters, 2 decimals, JSON output
-    print("[INFO] Configuring radar for ADC data output...")
-    radar.set_units_meters()
-    radar.set_precision(2)
-    radar.set_json_output(True)
-    radar.set_resolution(2)  # higher FFT zero-padding for better resolution
-    time.sleep(2)
+    # # Query module info safely
+    # print("[INFO] Disabling continious straming for info query...")
+    # radar.send_command("r>15") # set range to 10 m to reduce streaming load (i.e. stop reporting as often)
+    # radar.disable_fft_or_adc()
+    # time.sleep(0.5)
 
-    print("[INFO] Fetching module info...")
-    radar.print_lines(radar.get_info())  # Overall Module information
-    radar.print_lines(radar.query("?F")) # Output frequency
-    radar.print_lines(radar.query("s?")) # Sample rate
-    radar.print_lines(radar.query("t?")) # Chirp bandwidths
-    time.sleep(0.5)
+    # # Configure for meters, 2 decimals, JSON output
+    # print("[INFO] Configuring radar for FFT data output...")
+    # radar.set_units_meters()
+    # radar.set_precision(2)
+    # radar.set_json_output(True)
+    # radar.set_resolution()
+    # time.sleep(2)
 
-    print("[INFO] Turning on FMCW mode...")
-    radar.set_fmcw_mode()
+    # print("[INFO] Turning on FMCW mode...")
+    # radar.set_fmcw_mode()
 
-    # Write all raw radar output to JSON file
-    print("[INFO] Saving FFT data to JSON file...")
-    line = radar.get_fft_data()
-    if not line:
-        print("[DEBUG] Received:", line)
-        radar.stream_data(5)  # Stream for 5 seconds to see what's coming in
-        raise RuntimeError("Failed to get FFT data from radar.")
-    with open(OUTPUT_FILE, "w") as f:
-        json.dump(json.loads(line.strip()), f, indent=2)
-    print(f"[INFO] Saved lines to {OUTPUT_FILE}")
+    # # Average multiple FFT datasets
+    # print("[INFO] Collecting FFT data...")
+    # while True:
+    #     average_fft = radar.average_fft(num_averages=1)
+    #     radar._drain()
+    #     if average_fft is not None:
+    #         # Save averaged FFT to JSON
+    #         with open(OUTPUT_FILE, "w") as f:
+    #             json.dump({"FFT": average_fft.tolist()}, f, indent=2)
+    #         print(f"[INFO] Saved averaged FFT data to {OUTPUT_FILE}")
 
-    # Plot the FFT data
-    print("[INFO] Plotting FFT data...")
-    radar.plot_fft(OUTPUT_FILE)
+    #         # Plot the averaged FFT data
+    #         radar.plot_fft(OUTPUT_FILE)
 

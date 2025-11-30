@@ -99,11 +99,13 @@ int8_t OPS_FMCW::fmcw_radar_sensor_init()
 	send_command(FMCW_CMD_TURN_ON_ADC);
 	send_command(FMCW_CMD_TURN_OFF_FFT);
 	send_command(FMCW_CMD_TURN_OFF_ADC);
-	usleep(1000000); // 100ms delay to let the configuration settle
+	usleep(1000000); // 1s delay to let the configuration settle
 
 	// Query device information
 	std::string response;
-	query(FMCW_CMD_INFO, &response, 8);
+	query(
+	    FMCW_CMD_INFO, &response,
+	    16); // inconsistent number of response lines (though there should be 8), read 16 to be safe
 	printf("FMCW radar information: %s\n", response.c_str());
 
 	// Setup radar for FFT data
@@ -111,7 +113,10 @@ int8_t OPS_FMCW::fmcw_radar_sensor_init()
 	send_command(FMCW_CMD_PRECISION);
 	send_command(FMCW_CMD_SET_UNITS_M);
 	send_command(FMCW_CMD_SET_FFT_SIZE);
-	send_command(FMCW_CMD_SET_ZEROS);
+	usleep(100000);
+	send_command(FMCW_CMD_SET_FFT_CFG);
+	send_command(FMCW_CMD_LED_OFF);
+	send_command(FMCW_CMD_HIBERNATE);
 
 	return 0;
 }
@@ -126,7 +131,9 @@ int8_t OPS_FMCW::fmcw_radar_sensor_start_tx_signal()
 #ifdef RADAR_SIMULATION
 	return 0;
 #endif
+	send_command(FMCW_CMD_WAKEUP);
 	send_command(FMCW_CMD_TURN_ON_FFT); // starts continiously streaming FFT data
+	send_command(FMCW_CMD_LED_ON);
 	return 0;
 }
 
@@ -179,6 +186,7 @@ int8_t OPS_FMCW::fmcw_radar_sensor_read_rx_signal(fmcw_waveform_data_t *data)
 		size_t end = fft_data.find("]}");
 		if (end == std::string::npos)
 			continue; // line not valid
+		fft_data.erase(end);
 		memcpy(data->raw_data, fft_data.c_str(), sizeof(data->raw_data));
 		return 0;
 	}
@@ -196,6 +204,8 @@ int8_t OPS_FMCW::fmcw_radar_sensor_stop_tx_signal()
 	return 0;
 #endif
 	send_command(FMCW_CMD_TURN_OFF_FFT);
+	send_command(FMCW_CMD_LED_OFF);
+	send_command(FMCW_CMD_HIBERNATE);
 	return 0;
 }
 
@@ -258,9 +268,34 @@ int8_t OPS_FMCW::query(std::string cmd, std::string *response, uint8_t num_lines
 {
 	tcflush(fd, TCIFLUSH); // flush the input buffer of stail data
 	send_command(cmd);
-	usleep(1000000); // Pi runs faster than radar, give 100ms buffer time
+	usleep(100000); // Pi runs faster than radar, give 100ms buffer time
 	for (int8_t i = 0; i < num_lines; i++)
 		read_response(response);
+	return 0;
+}
+
+//------------------------------ Debug Functions -------------------------------
+/**
+ * Logs the received FMCW signal data from the radar sensor to a file.
+ *
+ * @return Returns 0 on success, -X on failure with failure code.
+ */
+int8_t OPS_FMCW::log_rx_signal(fmcw_waveform_data_t *data)
+{
+	static bool is_first_write = true;
+#define RADAR_LOG_PATH "./radar_fft.log"
+
+	FILE *log_file = fopen(RADAR_LOG_PATH, is_first_write ? "w" : "a");
+	if (log_file == NULL)
+	{
+		printf("Failed to open radar log file: %s\n", RADAR_LOG_PATH);
+		return -1;
+	}
+
+	is_first_write &= false;
+
+	fprintf(log_file, "%s\n", data->raw_data);
+	fclose(log_file);
 	return 0;
 }
 
