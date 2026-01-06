@@ -30,7 +30,7 @@
 
 constexpr const char *RAW_DATA_CSV = "./snow_angel_uav_raw.csv";
 
-constexpr int GPS_POLL_RATE_USEC = 15000;
+constexpr int GPS_POLL_RATE_USEC = 500000;
 
 constexpr double STOPPED_THRESHOLD_METERS = 0.5;
 constexpr double FLYING_THRESHOLD_METERS = 0.5;
