@@ -157,6 +157,9 @@ int8_t wait_until_stationary()
 		              current_gps_data.latitude, current_gps_data.longitude);
 		previous_gps_data = current_gps_data;
 
+		logging_write(LOG_INFO, "cumulative_distance_moved_meters = %f",
+		              cumulative_distance_moved_meters);
+
 		if (cumulative_distance_moved_meters < FLYING_THRESHOLD_METERS)
 		{
 			num_stationary_reads++;
@@ -165,6 +168,7 @@ int8_t wait_until_stationary()
 		{
 			num_stationary_reads = 0;             // Reset because we started moving again
 			cumulative_distance_moved_meters = 0; // Reset because we started moving again
+			logging_write(LOG_INFO, "Reset count");
 		}
 
 		if (num_stationary_reads == STATIONARY_READS_REQUIRED)
