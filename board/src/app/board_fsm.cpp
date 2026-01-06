@@ -130,7 +130,7 @@ int8_t wait_until_stationary()
 
 	uint8_t rc = 0;
 	uint8_t num_stationary_reads = 0;
-	double cumulative_distance_moved_meters = 0;
+	double cumulative_distance_moved_meters = 0.0;
 	gps_data_t previous_gps_data{};
 	gps_data_t current_gps_data{};
 
@@ -187,7 +187,7 @@ int8_t wait_until_stationary()
 int8_t wait_until_flying()
 {
 	uint8_t rc = 0;
-	double distance_moved_meters = 0;
+	double distance_moved_meters = 0.0;
 	gps_data_t initial_gps_data{};
 	gps_data_t current_gps_data{};
 
@@ -211,6 +211,8 @@ int8_t wait_until_flying()
 
 		distance_moved_meters = haversine(initial_gps_data.latitude, initial_gps_data.longitude,
 		                                  current_gps_data.latitude, current_gps_data.longitude);
+
+		logging_write(LOG_INFO, "distance_moved_meters = %f", distance_moved_meters);
 
 		if (distance_moved_meters >= FLYING_THRESHOLD_METERS)
 		{
