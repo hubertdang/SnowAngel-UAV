@@ -14,7 +14,6 @@
 #include "board_fsm.hpp"
 #include "bsp/fmcw_radar_sensor.hpp"
 #include "bsp/gps.hpp"
-#include "bsp/start_switch.hpp"
 #include "bsp/temperature_sensor.hpp"
 #include "common/common.h"
 #include "common/logging.h"
@@ -37,7 +36,6 @@ constexpr double STOPPED_THRESHOLD_METERS = 0.5;
 
 constexpr int STABLIZATION_TIME_USEC = 2000000;
 
-START_SWITCH *start_switch = nullptr;
 TEMPERATURE_SENSOR *temp_sensor = nullptr;
 FMCW_RADAR_SENSOR *fmcw_radar_sensor = nullptr;
 GPS *gps = nullptr;
@@ -45,7 +43,6 @@ GPS *gps = nullptr;
 std::ofstream raw_data_csv;
 
 enum board_state board_fsm_init();
-enum board_state board_fsm_idle();
 enum board_state board_fsm_flying();
 enum board_state board_fsm_stationary();
 enum board_state board_fsm_fault();
@@ -70,8 +67,6 @@ enum board_state board_fsm_process(enum board_state state)
 	{
 	case BOARD_STATE_INIT:
 		return board_fsm_init();
-	case BOARD_STATE_IDLE:
-		return board_fsm_idle();
 	case BOARD_STATE_FLYING:
 		return board_fsm_flying();
 	case BOARD_STATE_STATIONARY:
@@ -88,13 +83,6 @@ enum board_state board_fsm_process(enum board_state state)
 enum board_state board_fsm_init()
 {
 	int rc;
-
-	start_switch = instantiate_start_switch();
-	if ((rc = start_switch->start_switch_init()) != SUCCESS)
-	{
-		logging_write(LOG_ERROR, "Start switch init failed! (err %d)", rc);
-		return BOARD_STATE_FAULT;
-	}
 
 	temp_sensor = instantiate_temperature_sensor();
 	if ((rc = temp_sensor->temperature_sensor_init()) != SUCCESS)
@@ -124,27 +112,7 @@ enum board_state board_fsm_init()
 		return BOARD_STATE_FAULT;
 	}
 
-	return BOARD_STATE_IDLE;
-}
-
-enum board_state board_fsm_idle()
-{
-	uint8_t rc;
-	uint8_t switch_val;
-
-	if ((rc = start_switch->start_switch_read(&switch_val)) != SUCCESS)
-	{
-		logging_write(LOG_ERROR, "Start switch read failed! (err %d)", rc);
-		return BOARD_STATE_FAULT;
-	}
-
-	if (switch_val == SWITCH_START)
-	{
-		logging_write(LOG_INFO, "Switch flipped to \"START\"");
-		return BOARD_STATE_FLYING;
-	}
-
-	return BOARD_STATE_IDLE;
+	return BOARD_STATE_FLYING;
 }
 
 /**
@@ -326,7 +294,6 @@ enum board_state board_fsm_fault()
 
 enum board_state board_fsm_cleanup()
 {
-	delete start_switch;
 	delete temp_sensor;
 	delete fmcw_radar_sensor;
 	delete gps;
@@ -343,8 +310,6 @@ const char *board_fsm_state_to_str(enum board_state state)
 	{
 	case BOARD_STATE_INIT:
 		return "BOARD_STATE_INIT";
-	case BOARD_STATE_IDLE:
-		return "BOARD_STATE_IDLE";
 	case BOARD_STATE_FLYING:
 		return "BOARD_STATE_FLYING";
 	case BOARD_STATE_STATIONARY:
