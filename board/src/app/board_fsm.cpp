@@ -157,7 +157,7 @@ int8_t wait_until_stationary()
 		              current_gps_data.latitude, current_gps_data.longitude);
 		previous_gps_data = current_gps_data;
 
-		if (cumulative_distance_moved_meters < STOPPED_THRESHOLD_METERS)
+		if (cumulative_distance_moved_meters < FLYING_THRESHOLD_METERS)
 		{
 			num_stationary_reads++;
 		}
