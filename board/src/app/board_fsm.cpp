@@ -184,17 +184,17 @@ int8_t wait_until_flying()
 {
 	uint8_t rc = 0;
 	double distance_moved_meters;
-	gps_data_t previous_gps_data{};
+	gps_data_t initial_gps_data{};
 	gps_data_t current_gps_data{};
 
 	/* Get initial coordinates */
-	if ((rc = gps->gps_read(&previous_gps_data)) != SUCCESS)
+	if ((rc = gps->gps_read(&initial_gps_data)) != SUCCESS)
 	{
 		logging_write(LOG_ERROR, "GPS read failed! (err %d)", rc);
 		return rc;
 	}
 
-	/* Poll GPS to check if we've started flying */
+	/* Poll GPS to check if we're far away enough from our initial location */
 	while (true)
 	{
 		usleep(GPS_POLL_RATE_USEC);
@@ -205,9 +205,8 @@ int8_t wait_until_flying()
 			return rc;
 		}
 
-		distance_moved_meters = haversine(previous_gps_data.latitude, previous_gps_data.longitude,
+		distance_moved_meters = haversine(initial_gps_data.latitude, initial_gps_data.longitude,
 		                                  current_gps_data.latitude, current_gps_data.longitude);
-		previous_gps_data = current_gps_data;
 
 		if (distance_moved_meters >= FLYING_THRESHOLD_METERS)
 		{
