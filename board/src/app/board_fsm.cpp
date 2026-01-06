@@ -183,7 +183,7 @@ int8_t wait_until_stationary()
 int8_t wait_until_flying()
 {
 	uint8_t rc = 0;
-	double cumulative_distance_moved_meters;
+	double distance_moved_meters;
 	gps_data_t previous_gps_data{};
 	gps_data_t current_gps_data{};
 
@@ -205,12 +205,11 @@ int8_t wait_until_flying()
 			return rc;
 		}
 
-		cumulative_distance_moved_meters +=
-		    haversine(previous_gps_data.latitude, previous_gps_data.longitude,
-		              current_gps_data.latitude, current_gps_data.longitude);
+		distance_moved_meters = haversine(previous_gps_data.latitude, previous_gps_data.longitude,
+		                                  current_gps_data.latitude, current_gps_data.longitude);
 		previous_gps_data = current_gps_data;
 
-		if (cumulative_distance_moved_meters >= FLYING_THRESHOLD_METERS)
+		if (distance_moved_meters >= FLYING_THRESHOLD_METERS)
 		{
 			break; // Drone is flying
 		}
