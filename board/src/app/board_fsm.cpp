@@ -30,10 +30,10 @@
 
 constexpr const char *RAW_DATA_CSV = "./snow_angel_uav_raw.csv";
 
-constexpr int GPS_POLL_RATE_USEC = 500000;
+constexpr int GPS_POLL_RATE_USEC = 1000000;
 
-constexpr double STOPPED_THRESHOLD_METERS = 0.5;
-constexpr double FLYING_THRESHOLD_METERS = 0.5;
+constexpr double STOPPED_THRESHOLD_METERS = 1.0;
+constexpr double FLYING_THRESHOLD_METERS = 3.0;
 
 constexpr int STABLIZATION_TIME_USEC = 2000000;
 
@@ -130,7 +130,7 @@ int8_t wait_until_stationary()
 
 	uint8_t rc = 0;
 	uint8_t num_stationary_reads = 0;
-	double distance_moved_meters;
+	double cumulative_distance_moved_meters;
 	gps_data_t previous_gps_data{};
 	gps_data_t current_gps_data{};
 
@@ -152,11 +152,12 @@ int8_t wait_until_stationary()
 			return rc;
 		}
 
-		distance_moved_meters = haversine(previous_gps_data.latitude, previous_gps_data.longitude,
-		                                  current_gps_data.latitude, current_gps_data.longitude);
+		cumulative_distance_moved_meters +=
+		    haversine(previous_gps_data.latitude, previous_gps_data.longitude,
+		              current_gps_data.latitude, current_gps_data.longitude);
 		previous_gps_data = current_gps_data;
 
-		if (distance_moved_meters < STOPPED_THRESHOLD_METERS)
+		if (cumulative_distance_moved_meters < STOPPED_THRESHOLD_METERS)
 			num_stationary_reads++;
 		else
 			num_stationary_reads = 0; // Reset because we started moving again
@@ -180,7 +181,7 @@ int8_t wait_until_flying()
 
 	uint8_t rc = 0;
 	uint8_t num_flying_reads = 0;
-	double distance_moved_meters;
+	double cumulative_distance_moved_meters;
 	gps_data_t previous_gps_data{};
 	gps_data_t current_gps_data{};
 
@@ -202,11 +203,12 @@ int8_t wait_until_flying()
 			return rc;
 		}
 
-		distance_moved_meters = haversine(previous_gps_data.latitude, previous_gps_data.longitude,
-		                                  current_gps_data.latitude, current_gps_data.longitude);
+		cumulative_distance_moved_meters +=
+		    haversine(previous_gps_data.latitude, previous_gps_data.longitude,
+		              current_gps_data.latitude, current_gps_data.longitude);
 		previous_gps_data = current_gps_data;
 
-		if (distance_moved_meters >= FLYING_THRESHOLD_METERS)
+		if (cumulative_distance_moved_meters >= FLYING_THRESHOLD_METERS)
 		{
 			num_flying_reads++;
 			logging_write(LOG_INFO, "num_flying_reads = %d", num_flying_reads);

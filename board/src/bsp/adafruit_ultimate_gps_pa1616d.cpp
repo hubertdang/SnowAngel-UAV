@@ -61,7 +61,7 @@ GPS *ADAFRUIT_ULTIMATE_GPS_PA1616D::get_gps_instance()
 }
 
 /**
- * Initialized the GPS.
+ * Initialize the GPS.
  *
  * @return 0 on success, -X on failure with failure code
  */
