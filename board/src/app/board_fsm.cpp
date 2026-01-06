@@ -157,8 +157,6 @@ int8_t wait_until_stationary()
 		              current_gps_data.latitude, current_gps_data.longitude);
 		previous_gps_data = current_gps_data;
 
-		logging_write(LOG_INFO, "cumulative distance = %f", cumulative_distance_moved_meters);
-
 		if (cumulative_distance_moved_meters < STOPPED_THRESHOLD_METERS)
 		{
 			num_stationary_reads++;
@@ -211,8 +209,6 @@ int8_t wait_until_flying()
 		    haversine(previous_gps_data.latitude, previous_gps_data.longitude,
 		              current_gps_data.latitude, current_gps_data.longitude);
 		previous_gps_data = current_gps_data;
-
-		logging_write(LOG_INFO, "cumulative distance = %f", cumulative_distance_moved_meters);
 
 		if (cumulative_distance_moved_meters >= FLYING_THRESHOLD_METERS)
 		{
