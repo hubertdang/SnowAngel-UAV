@@ -130,7 +130,7 @@ int8_t wait_until_stationary()
 
 	uint8_t rc = 0;
 	uint8_t num_stationary_reads = 0;
-	double cumulative_distance_moved_meters;
+	double cumulative_distance_moved_meters = 0;
 	gps_data_t previous_gps_data{};
 	gps_data_t current_gps_data{};
 
@@ -187,7 +187,7 @@ int8_t wait_until_stationary()
 int8_t wait_until_flying()
 {
 	uint8_t rc = 0;
-	double distance_moved_meters;
+	double distance_moved_meters = 0;
 	gps_data_t initial_gps_data{};
 	gps_data_t current_gps_data{};
 
