@@ -157,10 +157,17 @@ int8_t wait_until_stationary()
 		              current_gps_data.latitude, current_gps_data.longitude);
 		previous_gps_data = current_gps_data;
 
+		logging_write(LOG_INFO, "cumulative distance = %f", cumulative_distance_moved_meters);
+
 		if (cumulative_distance_moved_meters < STOPPED_THRESHOLD_METERS)
+		{
 			num_stationary_reads++;
+		}
 		else
-			num_stationary_reads = 0; // Reset because we started moving again
+		{
+			num_stationary_reads = 0;             // Reset because we started moving again
+			cumulative_distance_moved_meters = 0; // Reset because we started moving again
+		}
 
 		if (num_stationary_reads == STATIONARY_READS_REQUIRED)
 			break; // Drone is stationary
@@ -208,14 +215,16 @@ int8_t wait_until_flying()
 		              current_gps_data.latitude, current_gps_data.longitude);
 		previous_gps_data = current_gps_data;
 
+		logging_write(LOG_INFO, "cumulative distance = %f", cumulative_distance_moved_meters);
+
 		if (cumulative_distance_moved_meters >= FLYING_THRESHOLD_METERS)
 		{
 			num_flying_reads++;
-			logging_write(LOG_INFO, "num_flying_reads = %d", num_flying_reads);
 		}
 		else
 		{
-			num_flying_reads = 0; // Reset because we stopped moving
+			num_flying_reads = 0;                 // Reset because we stopped moving
+			cumulative_distance_moved_meters = 0; // Reset because we stopped moving
 		}
 
 		if (num_flying_reads == FLYING_READS_REQUIRED)
