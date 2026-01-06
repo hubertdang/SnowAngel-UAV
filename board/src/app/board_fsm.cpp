@@ -84,6 +84,7 @@ enum board_state board_fsm_init()
 {
 	int rc;
 
+#if 0
 	temp_sensor = instantiate_temperature_sensor();
 	if ((rc = temp_sensor->temperature_sensor_init()) != SUCCESS)
 	{
@@ -97,6 +98,7 @@ enum board_state board_fsm_init()
 		logging_write(LOG_ERROR, "FMCW radar sensor init failed! (err %d)", rc);
 		return BOARD_STATE_FAULT;
 	}
+#endif
 
 	gps = instantiate_gps();
 	if ((rc = gps->gps_init()) != SUCCESS)
@@ -245,7 +247,9 @@ enum board_state board_fsm_stationary()
 
 	usleep(STABLIZATION_TIME_USEC); // Extra time to let the drone settle before transmitting radar
 
+#if 0
 	fmcw_radar_sensor->fmcw_radar_sensor_start_tx_signal();
+#endif
 
 	gps_data_t gps_data;
 	temp_sensor_data_t tmp_data;
@@ -253,6 +257,7 @@ enum board_state board_fsm_stationary()
 
 	int8_t rc;
 
+#if 0
 	/* Profile ice thickness */
 	for (int read_count = 0; read_count < NUM_RADAR_READS_PER_STOP; read_count++)
 	{
@@ -279,6 +284,7 @@ enum board_state board_fsm_stationary()
 	}
 
 	fmcw_radar_sensor->fmcw_radar_sensor_stop_tx_signal();
+#endif
 
 	if (wait_until_flying() != SUCCESS)
 		return BOARD_STATE_FAULT;
@@ -294,8 +300,10 @@ enum board_state board_fsm_fault()
 
 enum board_state board_fsm_cleanup()
 {
+#if 0
 	delete temp_sensor;
 	delete fmcw_radar_sensor;
+#endif
 	delete gps;
 
 	if (raw_data_csv.is_open())
