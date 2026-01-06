@@ -33,7 +33,7 @@ constexpr const char *RAW_DATA_CSV = "./snow_angel_uav_raw.csv";
 constexpr int GPS_POLL_RATE_USEC = 15000;
 
 constexpr double STOPPED_THRESHOLD_METERS = 0.5;
-constexpr double FLYING_THRESHOLD_METERS = 4.0;
+constexpr double FLYING_THRESHOLD_METERS = 0.5;
 
 constexpr int STABLIZATION_TIME_USEC = 2000000;
 
@@ -207,9 +207,14 @@ int8_t wait_until_flying()
 		previous_gps_data = current_gps_data;
 
 		if (distance_moved_meters >= FLYING_THRESHOLD_METERS)
+		{
 			num_flying_reads++;
+			logging_write(LOG_INFO, "num_flying_reads = %d", num_flying_reads);
+		}
 		else
+		{
 			num_flying_reads = 0; // Reset because we stopped moving
+		}
 
 		if (num_flying_reads == FLYING_READS_REQUIRED)
 			break; // Drone is flying
