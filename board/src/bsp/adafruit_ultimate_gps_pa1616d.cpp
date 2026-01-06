@@ -26,7 +26,7 @@
 
 #define GNGGA_INVALID_FIX "0"
 
-#define GPS_INIT_TIMEOUT 60
+#define GPS_INIT_TIMEOUT 240 // it usually takes 180 seconds
 
 std::vector<std::string> split_nmea_sentence(const std::string &sentence);
 
