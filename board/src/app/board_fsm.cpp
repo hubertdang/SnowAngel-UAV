@@ -32,7 +32,7 @@ constexpr const char *RAW_DATA_CSV = "./snow_angel_uav_raw.csv";
 
 constexpr int GPS_POLL_RATE_USEC = 1000000;
 
-constexpr double STOPPED_THRESHOLD_METERS = 1.0;
+constexpr double STOPPED_THRESHOLD_METERS = 2.0;
 constexpr double FLYING_THRESHOLD_METERS = 3.0;
 
 constexpr int STABLIZATION_TIME_USEC = 2000000;
@@ -126,7 +126,7 @@ enum board_state board_fsm_init()
  */
 int8_t wait_until_stationary()
 {
-	constexpr uint8_t STATIONARY_READS_REQUIRED = 5;
+	constexpr uint8_t STATIONARY_READS_REQUIRED = 2;
 
 	uint8_t rc = 0;
 	uint8_t num_stationary_reads = 0;
@@ -184,10 +184,7 @@ int8_t wait_until_stationary()
  */
 int8_t wait_until_flying()
 {
-	constexpr uint8_t FLYING_READS_REQUIRED = 3;
-
 	uint8_t rc = 0;
-	uint8_t num_flying_reads = 0;
 	double cumulative_distance_moved_meters;
 	gps_data_t previous_gps_data{};
 	gps_data_t current_gps_data{};
@@ -219,16 +216,8 @@ int8_t wait_until_flying()
 
 		if (cumulative_distance_moved_meters >= FLYING_THRESHOLD_METERS)
 		{
-			num_flying_reads++;
-		}
-		else
-		{
-			num_flying_reads = 0;                 // Reset because we stopped moving
-			cumulative_distance_moved_meters = 0; // Reset because we stopped moving
-		}
-
-		if (num_flying_reads == FLYING_READS_REQUIRED)
 			break; // Drone is flying
+		}
 	}
 
 	return SUCCESS;
