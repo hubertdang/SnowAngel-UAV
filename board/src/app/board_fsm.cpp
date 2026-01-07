@@ -52,7 +52,7 @@ enum board_state board_fsm_cleanup();
 int8_t wait_until_stationary();
 int8_t wait_until_flying();
 
-void persist_to_csv(double lat, double lon, double tmp, uint8_t *waveform, size_t waveform_len);
+void persist_to_csv(double lat, double lon, double tmp, char *waveform);
 double haversine(double lat1, double lon1, double lat2, double lon2);
 
 /**
@@ -228,7 +228,7 @@ enum board_state board_fsm_flying()
 	return BOARD_STATE_STATIONARY;
 }
 
-void persist_to_csv(double lat, double lon, double tmp, uint8_t *waveform, size_t waveform_len)
+void persist_to_csv(double lat, double lon, double tmp, char *waveform)
 {
 	constexpr double GPS_DATA_PRECISION = 6; // Number of decimal places
 	constexpr double TMP_DATA_PRECISION = 2; // Number of decimal places
@@ -239,8 +239,7 @@ void persist_to_csv(double lat, double lon, double tmp, uint8_t *waveform, size_
 	std::ostringstream csv_line;
 	csv_line << std::put_time(&tm, "%Y-%m-%d %H:%M:%S") << "," << std::fixed
 	         << std::setprecision(GPS_DATA_PRECISION) << lat << "," << lon << ","
-	         << std::setprecision(TMP_DATA_PRECISION) << tmp << ","
-	         << std::string(waveform, waveform + waveform_len);
+	         << std::setprecision(TMP_DATA_PRECISION) << tmp << "," << std::string(waveform);
 	raw_data_csv << csv_line.str() << "\n";
 	raw_data_csv.flush();
 }
@@ -281,7 +280,7 @@ enum board_state board_fsm_stationary()
 		}
 
 		persist_to_csv(gps_data.latitude, gps_data.longitude, tmp_data.temperature,
-		               waveform_data.raw_data, sizeof(waveform_data.raw_data));
+		               (char *)waveform_data.raw_data);
 	}
 
 	fmcw_radar_sensor->fmcw_radar_sensor_stop_tx_signal();
