@@ -14,7 +14,6 @@
 #include "board_fsm.hpp"
 #include "bsp/fmcw_radar_sensor.hpp"
 #include "bsp/gps.hpp"
-#include "bsp/start_switch.hpp"
 #include "bsp/temperature_sensor.hpp"
 #include "common/common.h"
 #include "common/logging.h"
@@ -31,13 +30,13 @@
 
 constexpr const char *RAW_DATA_CSV = "./snow_angel_uav_raw.csv";
 
-constexpr int GPS_POLL_RATE_USEC = 15000;
+constexpr int GPS_POLL_RATE_USEC = 1000000;
 
-constexpr double STOPPED_THRESHOLD_METERS = 0.5;
+constexpr double STOPPED_THRESHOLD_METERS = 2.0;
+constexpr double FLYING_THRESHOLD_METERS = 3.0;
 
 constexpr int STABLIZATION_TIME_USEC = 2000000;
 
-START_SWITCH *start_switch = nullptr;
 TEMPERATURE_SENSOR *temp_sensor = nullptr;
 FMCW_RADAR_SENSOR *fmcw_radar_sensor = nullptr;
 GPS *gps = nullptr;
@@ -45,7 +44,6 @@ GPS *gps = nullptr;
 std::ofstream raw_data_csv;
 
 enum board_state board_fsm_init();
-enum board_state board_fsm_idle();
 enum board_state board_fsm_flying();
 enum board_state board_fsm_stationary();
 enum board_state board_fsm_fault();
@@ -54,7 +52,7 @@ enum board_state board_fsm_cleanup();
 int8_t wait_until_stationary();
 int8_t wait_until_flying();
 
-void persist_to_csv(double lat, double lon, double tmp, uint8_t *waveform, size_t waveform_len);
+void persist_to_csv(double lat, double lon, double tmp, char *waveform);
 double haversine(double lat1, double lon1, double lat2, double lon2);
 
 /**
@@ -70,8 +68,6 @@ enum board_state board_fsm_process(enum board_state state)
 	{
 	case BOARD_STATE_INIT:
 		return board_fsm_init();
-	case BOARD_STATE_IDLE:
-		return board_fsm_idle();
 	case BOARD_STATE_FLYING:
 		return board_fsm_flying();
 	case BOARD_STATE_STATIONARY:
@@ -88,13 +84,6 @@ enum board_state board_fsm_process(enum board_state state)
 enum board_state board_fsm_init()
 {
 	int rc;
-
-	start_switch = instantiate_start_switch();
-	if ((rc = start_switch->start_switch_init()) != SUCCESS)
-	{
-		logging_write(LOG_ERROR, "Start switch init failed! (err %d)", rc);
-		return BOARD_STATE_FAULT;
-	}
 
 	temp_sensor = instantiate_temperature_sensor();
 	if ((rc = temp_sensor->temperature_sensor_init()) != SUCCESS)
@@ -124,27 +113,7 @@ enum board_state board_fsm_init()
 		return BOARD_STATE_FAULT;
 	}
 
-	return BOARD_STATE_IDLE;
-}
-
-enum board_state board_fsm_idle()
-{
-	uint8_t rc;
-	uint8_t switch_val;
-
-	if ((rc = start_switch->start_switch_read(&switch_val)) != SUCCESS)
-	{
-		logging_write(LOG_ERROR, "Start switch read failed! (err %d)", rc);
-		return BOARD_STATE_FAULT;
-	}
-
-	if (switch_val == SWITCH_START)
-	{
-		logging_write(LOG_INFO, "Switch flipped to \"START\"");
-		return BOARD_STATE_FLYING;
-	}
-
-	return BOARD_STATE_IDLE;
+	return BOARD_STATE_FLYING;
 }
 
 /**
@@ -155,11 +124,11 @@ enum board_state board_fsm_idle()
  */
 int8_t wait_until_stationary()
 {
-	constexpr uint8_t STATIONARY_READS_REQUIRED = 5;
+	constexpr uint8_t STATIONARY_READS_REQUIRED = 2;
 
 	uint8_t rc = 0;
 	uint8_t num_stationary_reads = 0;
-	double distance_moved_meters;
+	double cumulative_distance_moved_meters = 0.0;
 	gps_data_t previous_gps_data{};
 	gps_data_t current_gps_data{};
 
@@ -181,14 +150,24 @@ int8_t wait_until_stationary()
 			return rc;
 		}
 
-		distance_moved_meters = haversine(previous_gps_data.latitude, previous_gps_data.longitude,
-		                                  current_gps_data.latitude, current_gps_data.longitude);
+		cumulative_distance_moved_meters +=
+		    haversine(previous_gps_data.latitude, previous_gps_data.longitude,
+		              current_gps_data.latitude, current_gps_data.longitude);
 		previous_gps_data = current_gps_data;
 
-		if (distance_moved_meters < STOPPED_THRESHOLD_METERS)
+		logging_write(LOG_INFO, "cumulative_distance_moved_meters = %f",
+		              cumulative_distance_moved_meters);
+
+		if (cumulative_distance_moved_meters < FLYING_THRESHOLD_METERS)
+		{
 			num_stationary_reads++;
+		}
 		else
-			num_stationary_reads = 0; // Reset because we started moving again
+		{
+			num_stationary_reads = 0;             // Reset because we started moving again
+			cumulative_distance_moved_meters = 0; // Reset because we started moving again
+			logging_write(LOG_INFO, "Reset count");
+		}
 
 		if (num_stationary_reads == STATIONARY_READS_REQUIRED)
 			break; // Drone is stationary
@@ -205,22 +184,19 @@ int8_t wait_until_stationary()
  */
 int8_t wait_until_flying()
 {
-	constexpr uint8_t FLYING_READS_REQUIRED = 3;
-
 	uint8_t rc = 0;
-	uint8_t num_flying_reads = 0;
-	double distance_moved_meters;
-	gps_data_t previous_gps_data{};
+	double distance_moved_meters = 0.0;
+	gps_data_t initial_gps_data{};
 	gps_data_t current_gps_data{};
 
 	/* Get initial coordinates */
-	if ((rc = gps->gps_read(&previous_gps_data)) != SUCCESS)
+	if ((rc = gps->gps_read(&initial_gps_data)) != SUCCESS)
 	{
 		logging_write(LOG_ERROR, "GPS read failed! (err %d)", rc);
 		return rc;
 	}
 
-	/* Poll GPS to check if we've started flying */
+	/* Poll GPS to check if we're far away enough from our initial location */
 	while (true)
 	{
 		usleep(GPS_POLL_RATE_USEC);
@@ -231,17 +207,15 @@ int8_t wait_until_flying()
 			return rc;
 		}
 
-		distance_moved_meters = haversine(previous_gps_data.latitude, previous_gps_data.longitude,
+		distance_moved_meters = haversine(initial_gps_data.latitude, initial_gps_data.longitude,
 		                                  current_gps_data.latitude, current_gps_data.longitude);
-		previous_gps_data = current_gps_data;
 
-		if (distance_moved_meters >= STOPPED_THRESHOLD_METERS)
-			num_flying_reads++;
-		else
-			num_flying_reads = 0; // Reset because we stopped moving
+		logging_write(LOG_INFO, "distance_moved_meters = %f", distance_moved_meters);
 
-		if (num_flying_reads == FLYING_READS_REQUIRED)
+		if (distance_moved_meters >= FLYING_THRESHOLD_METERS)
+		{
 			break; // Drone is flying
+		}
 	}
 
 	return SUCCESS;
@@ -254,7 +228,7 @@ enum board_state board_fsm_flying()
 	return BOARD_STATE_STATIONARY;
 }
 
-void persist_to_csv(double lat, double lon, double tmp, uint8_t *waveform, size_t waveform_len)
+void persist_to_csv(double lat, double lon, double tmp, char *waveform)
 {
 	constexpr double GPS_DATA_PRECISION = 6; // Number of decimal places
 	constexpr double TMP_DATA_PRECISION = 2; // Number of decimal places
@@ -265,8 +239,7 @@ void persist_to_csv(double lat, double lon, double tmp, uint8_t *waveform, size_
 	std::ostringstream csv_line;
 	csv_line << std::put_time(&tm, "%Y-%m-%d %H:%M:%S") << "," << std::fixed
 	         << std::setprecision(GPS_DATA_PRECISION) << lat << "," << lon << ","
-	         << std::setprecision(TMP_DATA_PRECISION) << tmp << ","
-	         << std::string(waveform, waveform + waveform_len);
+	         << std::setprecision(TMP_DATA_PRECISION) << tmp << "," << std::string(waveform);
 	raw_data_csv << csv_line.str() << "\n";
 	raw_data_csv.flush();
 }
@@ -307,7 +280,7 @@ enum board_state board_fsm_stationary()
 		}
 
 		persist_to_csv(gps_data.latitude, gps_data.longitude, tmp_data.temperature,
-		               waveform_data.raw_data, sizeof(waveform_data.raw_data));
+		               (char *)waveform_data.raw_data);
 	}
 
 	fmcw_radar_sensor->fmcw_radar_sensor_stop_tx_signal();
@@ -326,7 +299,6 @@ enum board_state board_fsm_fault()
 
 enum board_state board_fsm_cleanup()
 {
-	delete start_switch;
 	delete temp_sensor;
 	delete fmcw_radar_sensor;
 	delete gps;
@@ -343,8 +315,6 @@ const char *board_fsm_state_to_str(enum board_state state)
 	{
 	case BOARD_STATE_INIT:
 		return "BOARD_STATE_INIT";
-	case BOARD_STATE_IDLE:
-		return "BOARD_STATE_IDLE";
 	case BOARD_STATE_FLYING:
 		return "BOARD_STATE_FLYING";
 	case BOARD_STATE_STATIONARY:

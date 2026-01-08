@@ -93,7 +93,6 @@ int8_t ADAFRUIT_TM117::temperature_sensor_read(temp_sensor_data_t *data)
 
 	printf("Temperature: %.4fC\n", temperature);
 	data->temperature = temperature;
-	close(fd);
 	return 0;
 }
 
