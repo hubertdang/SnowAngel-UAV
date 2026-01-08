@@ -54,7 +54,6 @@ int8_t ADAFRUIT_TM117::temperature_sensor_init()
 	if (ioctl(fd, I2C_SLAVE, i2c_addr) < 0)
 	{
 		printf("Failed to set I2C slave address\n");
-		close(fd);
 		return -2;
 	}
 	return 0;
