@@ -44,6 +44,7 @@ GPS *gps = nullptr;
 std::ofstream raw_data_csv;
 
 enum board_state board_fsm_init();
+enum board_state board_fsm_idle();
 enum board_state board_fsm_flying();
 enum board_state board_fsm_stationary();
 enum board_state board_fsm_fault();
@@ -68,6 +69,8 @@ enum board_state board_fsm_process(enum board_state state)
 	{
 	case BOARD_STATE_INIT:
 		return board_fsm_init();
+	case BOARD_STATE_IDLE:
+		return board_fsm_idle();
 	case BOARD_STATE_FLYING:
 		return board_fsm_flying();
 	case BOARD_STATE_STATIONARY:
@@ -113,7 +116,7 @@ enum board_state board_fsm_init()
 		return BOARD_STATE_FAULT;
 	}
 
-	return BOARD_STATE_FLYING;
+	return BOARD_STATE_IDLE;
 }
 
 /**
@@ -221,10 +224,23 @@ int8_t wait_until_flying()
 	return SUCCESS;
 }
 
+enum board_state board_fsm_idle()
+{
+	if (wait_until_flying() != SUCCESS)
+	{
+		return BOARD_STATE_FLYING;
+	}
+
+	return BOARD_STATE_FAULT;
+}
+
 enum board_state board_fsm_flying()
 {
 	if (wait_until_stationary() != SUCCESS)
+	{
 		return BOARD_STATE_FAULT;
+	}
+
 	return BOARD_STATE_STATIONARY;
 }
 
@@ -315,6 +331,8 @@ const char *board_fsm_state_to_str(enum board_state state)
 	{
 	case BOARD_STATE_INIT:
 		return "BOARD_STATE_INIT";
+	case BOARD_STATE_IDLE:
+		return "BOARD_STATE_IDLE";
 	case BOARD_STATE_FLYING:
 		return "BOARD_STATE_FLYING";
 	case BOARD_STATE_STATIONARY:
