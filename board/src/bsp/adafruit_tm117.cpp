@@ -91,7 +91,6 @@ int8_t ADAFRUIT_TM117::temperature_sensor_read(temp_sensor_data_t *data)
 	int16_t raw = (buf[0] << 8) | buf[1];
 	double temperature = raw * 0.0078125f; // 1/128 = 0.0078125
 
-	printf("Temperature: %.4fC\n", temperature);
 	data->temperature = temperature;
 	return 0;
 }

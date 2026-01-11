@@ -13,6 +13,8 @@ int main()
 		exit(EXIT_FAILURE);
 	}
 
+	logging_write(LOG_INFO, "New run starting");
+
 	enum board_state current_state = BOARD_STATE_INIT;
 	enum board_state previous_state = current_state;
 
