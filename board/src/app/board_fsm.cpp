@@ -161,7 +161,9 @@ int8_t wait_until_stationary()
 		logging_write(LOG_INFO, "distance_moved_meters = %f", distance_moved_meters);
 
 		if (distance_moved_meters < FLYING_THRESHOLD_METERS)
+		{
 			num_stationary_reads++;
+		}
 		else
 		{
 			num_stationary_reads = 0; // Reset because we started moving again
@@ -169,7 +171,9 @@ int8_t wait_until_stationary()
 		}
 
 		if (num_stationary_reads == STATIONARY_READS_REQUIRED)
+		{
 			break; // Drone is stationary
+		}
 	}
 
 	return SUCCESS;
@@ -214,12 +218,18 @@ int8_t wait_until_flying()
 		logging_write(LOG_INFO, "distance_moved_meters = %f", distance_moved_meters);
 
 		if (distance_moved_meters >= STATIONARY_THRESHOLD_METERS)
+		{
 			num_flying_reads++;
+		}
 		else
+		{
 			num_flying_reads = 0; // reset as we stopped moving
+		}
 
 		if (num_flying_reads == FLYING_READS_REQUIRED)
+		{
 			break; // drone is flying
+		}
 	}
 
 	return SUCCESS;
@@ -303,7 +313,9 @@ enum board_state board_fsm_stationary()
 	fmcw_radar_sensor->fmcw_radar_sensor_stop_tx_signal();
 
 	if (wait_until_flying() != SUCCESS)
+	{
 		return BOARD_STATE_FAULT;
+	}
 	return BOARD_STATE_FLYING;
 }
 
