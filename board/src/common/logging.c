@@ -34,9 +34,7 @@ int logging_init()
 	char log_file_path[512]; /* Big enough for file in home */
 	snprintf(log_file_path, sizeof(log_file_path), "%s", LOG_FILE_NAME);
 
-	remove(log_file_path);
-
-	log_file = fopen(log_file_path, "w");
+	log_file = fopen(log_file_path, "a");
 
 	if (log_file == NULL)
 		return -2;
