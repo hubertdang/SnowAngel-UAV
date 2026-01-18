@@ -30,25 +30,26 @@ services:
       DB_USER: snowangel
       DB_PASS: snowangel
       CORS_ORIGINS: http://localhost:4173,http://0.0.0.0:4173,http://frontend
+      RAPIDAPI_KEY: 501f6d6309msh102fb6a3d55399cp1589e0jsn5cd55ae4f394
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "8000:8000"
 
-  seed-data:
-    image: snowangel-backend
-    command: ["python", "scripts/seed_dummy_data.py", "--count", "220", "--days", "4"]
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: snowangel
-      DB_USER: snowangel
-      DB_PASS: snowangel
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
+  # seed-data:
+  #   image: snowangel-backend
+  #   command: ["python", "scripts/seed_dummy_data.py", "--count", "220", "--days", "4"]
+  #   environment:
+  #     DB_HOST: postgres
+  #     DB_PORT: 5432
+  #     DB_NAME: snowangel
+  #     DB_USER: snowangel
+  #     DB_PASS: snowangel
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   restart: "no"
 
   frontend:
     build:

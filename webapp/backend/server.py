@@ -1,110 +1,1027 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
-from pydantic import BaseModel
-from typing import Optional
-import psycopg2
-import os
+"""Ice Measurement API backend for SnowAngel UAV."""
 
-# --- Database connection ---
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import csv
+import math
+import os
+import uuid
+from datetime import datetime
+from pathlib import Path
+from typing import Iterator, List, Optional, Tuple
+
+import httpx
+import numpy as np
+import psycopg2
+import psycopg2.extras
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from scipy.signal import find_peaks
+
+
+DB_CONFIG = {
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": int(os.getenv("DB_PORT", 5432)),
+    "dbname": os.getenv("DB_NAME", "snowangel"),
+    "user": os.getenv("DB_USER", "snowangel"),
+    "password": os.getenv("DB_PASS", "snowangel"),
+}
+
+# File upload directory
+UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
+
+# isitwater API configuration
+RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "")
+ISITWATER_API_URL = "https://isitwater-com.p.rapidapi.com/"
+ISITWATER_HEADERS = {
+    "x-rapidapi-key": RAPIDAPI_KEY,
+    "x-rapidapi-host": "isitwater-com.p.rapidapi.com",
+}
+
+# FMCW Radar constants (from ops_serial.py)
+SAMPLING_RATE = 80000.0  # 80kHz
+C = 3e8  # speed of light
+BW = 990e6  # 990 MHz Bandwidth
+T_CHIRP = 1.6e-3  # 1.6 ms chirp duration
+S = BW / T_CHIRP  # chirp slope (Hz/s)
+N_FULL = 1024
+N = 512  # FFT is symmetric, so full length is double
+BIN_SPACING = SAMPLING_RATE / N_FULL
+FREQ_AXIS = np.arange(N) * BIN_SPACING
+HZ_TO_M = C / (2 * S)
+RANGE_AXIS = FREQ_AXIS * HZ_TO_M  # Range in meters for each bin
+
+
+def _connect() -> psycopg2.extensions.connection:
+    return psycopg2.connect(**DB_CONFIG)
+
+
 try:
-    conn = psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        port=os.getenv("DB_PORT", 5432),
-        database=os.getenv("DB_NAME", "db"),
-        user=os.getenv("DB_USER", "temp"),
-        password=os.getenv("DB_PASS", "pass")
-    )
-    conn.autocommit = True
-except Exception as e:
-    raise RuntimeError(f"Failed to connect to database: {e}")
+    CONNECTION = _connect()
+    CONNECTION.autocommit = True
+except psycopg2.Error as exc:  # pragma: no cover - raised during boot
+    raise RuntimeError(f"Failed to connect to database: {exc}")
+
+
+def _connection() -> psycopg2.extensions.connection:
+    global CONNECTION
+    if CONNECTION.closed:  # psycopg2 closes with non-zero int
+        CONNECTION = _connect()
+        CONNECTION.autocommit = True
+    return CONNECTION
+
+
+@contextlib.contextmanager
+def get_cursor(commit: bool = False) -> Iterator[psycopg2.extensions.cursor]:
+    conn = _connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        yield cur
+        if commit:
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
+def ensure_tables() -> None:
+    """Create database tables if they don't exist."""
+    with get_cursor(True) as cur:
+        # Create flights table
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS flights (
+                flight_id SERIAL PRIMARY KEY,
+                date TIMESTAMP NOT NULL,
+                location TEXT,
+                notes TEXT
+            );
+            """
+        )
+
+        # Create raw_measurements table
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS raw_measurements (
+                measurement_id SERIAL PRIMARY KEY,
+                flight_id INTEGER NOT NULL REFERENCES flights(flight_id) ON DELETE CASCADE,
+                timestamp TIMESTAMP NOT NULL,
+                coordinates POINT,
+                temperature FLOAT,
+                fft_data FLOAT[],
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+            );
+            """
+        )
+
+        # Create cleaned_measurements table
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cleaned_measurements (
+                cleaned_id SERIAL PRIMARY KEY,
+                flight_id INTEGER NOT NULL REFERENCES flights(flight_id) ON DELETE CASCADE,
+                raw_id INTEGER NOT NULL REFERENCES raw_measurements(measurement_id) ON DELETE CASCADE,
+                timestamp TIMESTAMP NOT NULL,
+                coordinates POINT,
+                temperature FLOAT,
+                thickness FLOAT,
+                quality_score FLOAT,
+                processed_at TIMESTAMP
+            );
+            """
+        )
+
+        # Create indexes for better query performance
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_raw_measurements_flight_id ON raw_measurements (flight_id);"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cleaned_measurements_flight_id ON cleaned_measurements (flight_id);"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cleaned_measurements_raw_id ON cleaned_measurements (raw_id);"
+        )
+
 
 app = FastAPI(title="Ice Measurement API")
 
-# --- Pydantic models ---
-class Flight(BaseModel):
-    date: str
-    location: str
-    notes: Optional[str] = None
-
-# --- Helper function placeholder ---
-def process_uploaded_measurements(file: UploadFile, flight_id: int):
-    """
-    Placeholder function to handle file parsing and DB insertion.
-    - Parse the uploaded file
-    - Insert rows into raw_measurements and cleaned_measurements
-    """
-    # TODO: Implement parsing + insertion logic here
-    pass
+allowed_origins = os.getenv("CORS_ORIGINS", "*").split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[origin.strip() for origin in allowed_origins],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
-# --- Routes ---
+@app.on_event("startup")
+def startup_event() -> None:
+    """Initialize database tables on application startup."""
+    ensure_tables()
+    # Ensure upload directory exists
+    UPLOAD_DIR.mkdir(exist_ok=True)
+
+
 @app.get("/")
 def root():
     return {"message": "Ice Measurement API is running"}
 
-@app.get("/flights")
-def get_flights():
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM flights ORDER BY flight_id;")
-    rows = cur.fetchall()
-    cur.close()
-    return [{"flight_id": r[0], "date": str(r[1]), "location": r[2], "notes": r[3]} for r in rows]
+
+@app.get("/api/health")
+def healthcheck():
+    return {"status": "ok"}
+
+
+@app.get("/api/summary")
+def get_summary(flight_id: Optional[int] = Query(None, description="Filter by flight_id")):
+    """
+    Get summary statistics for all three tables.
+    Useful for testing and debugging.
+    """
+    with get_cursor() as cur:
+        # Count flights
+        if flight_id:
+            cur.execute("SELECT COUNT(*) as count FROM flights WHERE flight_id = %s;", (flight_id,))
+        else:
+            cur.execute("SELECT COUNT(*) as count FROM flights;")
+        flights_count = cur.fetchone()["count"]
+        
+        # Count raw measurements
+        if flight_id:
+            cur.execute("SELECT COUNT(*) as count FROM raw_measurements WHERE flight_id = %s;", (flight_id,))
+        else:
+            cur.execute("SELECT COUNT(*) as count FROM raw_measurements;")
+        raw_count = cur.fetchone()["count"]
+        
+        # Count cleaned measurements
+        if flight_id:
+            cur.execute("SELECT COUNT(*) as count FROM cleaned_measurements WHERE flight_id = %s;", (flight_id,))
+        else:
+            cur.execute("SELECT COUNT(*) as count FROM cleaned_measurements;")
+        cleaned_count = cur.fetchone()["count"]
+    
+    return {
+        "flights": flights_count,
+        "raw_measurements": raw_count,
+        "cleaned_measurements": cleaned_count,
+        "filtered_by_flight_id": flight_id,
+    }
+
+
+# --- Helper Functions ---
+
+
+async def _is_water(latitude: float, longitude: float) -> bool:
+    """
+    Check if coordinates are over water using isitwater API.
+    
+    Args:
+        latitude: Latitude coordinate
+        longitude: Longitude coordinate
+        
+    Returns:
+        True if coordinates are over water, False if over land
+        Returns False if API call fails (fail-safe: don't insert on error)
+    """
+    if not RAPIDAPI_KEY:
+        # If no API key, skip filtering (return True to allow all measurements)
+        # In production, you might want to raise an error instead
+        return True
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                ISITWATER_API_URL,
+                headers=ISITWATER_HEADERS,
+                params={"latitude": str(latitude), "longitude": str(longitude)},
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("water", False)
+    except Exception as e:
+        # On API error, be conservative: don't insert (return False)
+        # Log the error in production
+        print(f"Error checking water for coordinates ({latitude}, {longitude}): {e}")
+        return False
+
+
+async def _filter_water_measurements(measurements: List[dict]) -> List[dict]:
+    """
+    Filter measurements to keep only those over water.
+    
+    Args:
+        measurements: List of parsed measurement dictionaries
+        
+    Returns:
+        List of measurements that are over water
+    """
+    water_measurements = []
+    
+    for measurement in measurements:
+        coords = measurement["coordinates"]
+        latitude = coords[1]
+        longitude = coords[0]
+        
+        if await _is_water(latitude, longitude):
+            water_measurements.append(measurement)
+        
+        # Add small delay to avoid rate limiting (adjust as needed)
+        await asyncio.sleep(1)  # 1s delay between API calls
+    
+    return water_measurements
+
+
+def _distance_between_coords(coord1: tuple, coord2: tuple) -> float:
+    """
+    Calculate distance in meters between two coordinates using Haversine formula.
+    
+    Args:
+        coord1: Tuple of (longitude, latitude)
+        coord2: Tuple of (longitude, latitude)
+        
+    Returns:
+        Distance in meters
+    """
+    # Earth radius in meters
+    R = 6371000
+    
+    lon1, lat1 = math.radians(coord1[0]), math.radians(coord1[1])
+    lon2, lat2 = math.radians(coord2[0]), math.radians(coord2[1])
+    
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    )
+    c = 2 * math.asin(math.sqrt(a))
+    
+    return R * c
+
+
+def _combine_measurements(measurements: List[dict]) -> dict:
+    """
+    Combine multiple measurements by averaging coordinates and FFT data.
+    
+    Args:
+        measurements: List of measurement dictionaries to combine
+        
+    Returns:
+        Combined measurement dictionary
+    """
+    if not measurements:
+        raise ValueError("Cannot combine empty list of measurements")
+    
+    if len(measurements) == 1:
+        return measurements[0]
+    
+    # Average coordinates
+    total_lon = sum(m["coordinates"][0] for m in measurements)
+    total_lat = sum(m["coordinates"][1] for m in measurements)
+    avg_lon = total_lon / len(measurements)
+    avg_lat = total_lat / len(measurements)
+    
+    # Average temperature (could be weighted or simple average)
+    avg_temp = sum(m["temperature"] for m in measurements) / len(measurements)
+    
+    # Average FFT data - handle different lengths
+    fft_arrays = [m["fft_data"] for m in measurements]
+    max_length = max(len(fft) for fft in fft_arrays)
+    
+    combined_fft = []
+    for idx in range(max_length):
+        values_at_idx = []
+        for fft_array in fft_arrays:
+            if idx < len(fft_array):
+                values_at_idx.append(fft_array[idx])
+        
+        if values_at_idx:
+            # Average values at this index (only from arrays that have this index)
+            avg_value = sum(values_at_idx) / len(values_at_idx)
+            combined_fft.append(avg_value)
+        else:
+            # This shouldn't happen, but handle edge case
+            break
+    
+    # Use the earliest timestamp from the combined measurements
+    earliest_timestamp = min(m["timestamp"] for m in measurements)
+    
+    # Use the first measurement's flight_id (all should be the same)
+    flight_id = measurements[0]["flight_id"]
+    
+    return {
+        "flight_id": flight_id,
+        "timestamp": earliest_timestamp,
+        "coordinates": (avg_lon, avg_lat),
+        "temperature": avg_temp,
+        "fft_data": combined_fft,
+        "created_at": datetime.now(),
+    }
+
+
+def _combine_nearby_measurements(measurements: List[dict], distance_threshold_m: float = 5.0) -> List[dict]:
+    """
+    Combine measurements that are within the distance threshold of each other.
+    Uses iterative expansion: starts with one measurement, combines nearby ones,
+    then checks remaining measurements against the new combined coordinates.
+    
+    Example: If A->B (4m) and B->C (4m) but A->C (7m):
+    - Start with A, find B within 5m, combine into AB
+    - Check if C is within 5m of AB's new coordinates
+    - If yes, add C; if no, leave C separate
+    
+    Args:
+        measurements: List of measurement dictionaries
+        distance_threshold_m: Distance threshold in meters (default: 5.0)
+        
+    Returns:
+        List of combined measurements
+    """
+    if not measurements:
+        return []
+    
+    combined = []
+    processed_indices = set()
+    
+    for i, measurement in enumerate(measurements):
+        if i in processed_indices:
+            continue
+        
+        # Start with this measurement
+        cluster = [measurement]
+        cluster_indices = {i}
+        
+        # Iteratively expand the cluster
+        # Keep checking until no new measurements are added
+        changed = True
+        while changed:
+            changed = False
+            current_combined = _combine_measurements(cluster)
+            current_coords = current_combined["coordinates"]
+            
+            # Check all remaining measurements
+            for j, other_measurement in enumerate(measurements):
+                if j in cluster_indices or j in processed_indices:
+                    continue
+                
+                # Check distance from combined coordinates to this measurement
+                distance = _distance_between_coords(
+                    current_coords,
+                    other_measurement["coordinates"],
+                )
+                
+                if distance <= distance_threshold_m:
+                    # Add to cluster
+                    cluster.append(other_measurement)
+                    cluster_indices.add(j)
+                    changed = True
+        
+        # Combine the final cluster
+        combined_measurement = _combine_measurements(cluster)
+        combined.append(combined_measurement)
+        
+        # Mark all measurements in cluster as processed
+        processed_indices.update(cluster_indices)
+    
+    return combined
+
+
+def _parse_csv_row(row: List[str], flight_id: int) -> dict:
+    """
+    Parse a single CSV row into a raw measurement dictionary.
+    
+    Expected format: Time,Longitude,Latitude,Temperature,FFT-Data...
+    
+    Args:
+        row: List of strings from CSV row
+        flight_id: The flight_id for this measurement
+        
+    Returns:
+        Dictionary with parsed measurement data
+    """
+    if len(row) < 4:
+        raise ValueError(f"CSV row must have at least 4 columns (Time, Longitude, Latitude, Temperature), got {len(row)}")
+    
+    # Parse timestamp (format: "2026-01-16 09:35:20")
+    try:
+        timestamp_str = row[0].strip()
+        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+    except ValueError as e:
+        raise ValueError(f"Invalid timestamp format: {row[0]}") from e
+    
+    # Parse coordinates
+    try:
+        longitude = float(row[1].strip())
+        latitude = float(row[2].strip())
+    except ValueError as e:
+        raise ValueError(f"Invalid coordinates: {row[1]}, {row[2]}") from e
+    
+    # Parse temperature
+    try:
+        temperature = float(row[3].strip())
+    except ValueError as e:
+        raise ValueError(f"Invalid temperature: {row[3]}") from e
+    
+    # Parse FFT data (everything from index 4 onwards)
+    fft_data = []
+    for i in range(4, len(row)):
+        if row[i].strip():  # Skip empty values
+            try:
+                fft_data.append(float(row[i].strip()))
+            except ValueError:
+                # Skip invalid FFT values but log warning
+                continue
+    
+    return {
+        "flight_id": flight_id,
+        "timestamp": timestamp,
+        "coordinates": (longitude, latitude),  # PostgreSQL POINT format
+        "temperature": temperature,
+        "fft_data": fft_data,
+        "created_at": datetime.now(),
+    }
+
+
+def _insert_raw_measurements_with_ids(raw_measurements: List[dict]) -> List[int]:
+    """
+    Insert parsed raw measurements into the raw_measurements table and return their IDs.
+    
+    Args:
+        raw_measurements: List of dictionaries containing measurement data
+        
+    Returns:
+        List of measurement_id values in the same order as input measurements
+    """
+    if not raw_measurements:
+        return []
+    
+    # Prepare data with properly formatted coordinates for PostgreSQL POINT type
+    prepared_data = []
+    for measurement in raw_measurements:
+        coords = measurement["coordinates"]
+        prepared_data.append({
+            "flight_id": measurement["flight_id"],
+            "timestamp": measurement["timestamp"],
+            "longitude": coords[0],
+            "latitude": coords[1],
+            "temperature": measurement["temperature"],
+            "fft_data": measurement["fft_data"],
+            "created_at": measurement["created_at"],
+        })
+    
+    measurement_ids = []
+    with get_cursor(True) as cur:
+        for data in prepared_data:
+            cur.execute(
+                """
+                INSERT INTO raw_measurements (flight_id, timestamp, coordinates, temperature, fft_data, created_at)
+                VALUES (%(flight_id)s, %(timestamp)s, POINT(%(longitude)s, %(latitude)s), %(temperature)s, %(fft_data)s, %(created_at)s)
+                RETURNING measurement_id;
+                """,
+                data,
+            )
+            result = cur.fetchone()
+            measurement_ids.append(result["measurement_id"])
+    
+    return measurement_ids
+
+
+def _process_fft_to_thickness(fft_data: List[float]) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Process FFT data to calculate ice thickness.
+    
+    Based on ops_serial.py calculation:
+    - Finds peaks in valid range (0.1m to 1m)
+    - Validates at least 2 peaks exist
+    - Validates first peak magnitude > second peak magnitude
+    - Calculates thickness as (r2 - r1) where r1, r2 are peak ranges
+    
+    Args:
+        fft_data: List of FFT magnitude values
+        
+    Returns:
+        Tuple of (thickness_in_cm, quality_score) or (None, None) if invalid
+        quality_score: ratio of first peak to second peak magnitude
+    """
+    if not fft_data or len(fft_data) == 0:
+        return None, None
+    
+    fft_array = np.array(fft_data, dtype=float)
+    
+    # Consider ranges between 0.1 m and 1 m only for peak detection
+    valid = (RANGE_AXIS > 0.1) & (RANGE_AXIS < 1)
+    valid_indices = np.where(valid)[0]
+    
+    if len(valid_indices) == 0:
+        return None, None
+    
+    # Find peaks with same parameters as ops_serial.py
+    peaks, properties = find_peaks(
+        fft_array[valid_indices],
+        distance=2,  # at least 2 bins apart (≈3.7 cm)
+        prominence=0.003 * np.max(fft_array),
+    )
+    
+    peaks = valid_indices[peaks]  # Convert back to original indices
+    peaks = np.sort(peaks)[:2]  # Get the two smallest peak indices (closest ranges)
+    
+    # Validate: need at least 2 peaks
+    if len(peaks) < 2:
+        return None, None
+    
+    # Get peak ranges and magnitudes
+    r1 = RANGE_AXIS[peaks[0]]
+    r2 = RANGE_AXIS[peaks[1]]
+    magnitude1 = fft_array[peaks[0]]
+    magnitude2 = fft_array[peaks[1]]
+    
+    # Validate: first peak must be bigger than second peak
+    if magnitude1 <= magnitude2:
+        return None, None
+    
+    # Calculate ice thickness (difference between two peak ranges)
+    ice_thickness_m = r2 - r1
+    ice_thickness_cm = ice_thickness_m * 100
+    
+    # Calculate quality score (ratio of first to second peak)
+    quality_score = float(magnitude1 / magnitude2) if magnitude2 > 0 else 1.0
+    
+    # Clamp quality score to reasonable range (0-1)
+    quality_score = min(quality_score / 10.0, 1.0)  # Normalize (assuming max ratio ~10)
+    
+    return ice_thickness_cm, quality_score
+
+
+def _process_and_validate_measurements(measurements: List[dict]) -> List[dict]:
+    """
+    Process FFT data for each measurement and validate peaks.
+    Discards measurements that don't meet validation criteria.
+    
+    Args:
+        measurements: List of measurement dictionaries with FFT data
+        
+    Returns:
+        List of validated measurements with thickness and quality_score added
+    """
+    validated_measurements = []
+    
+    for measurement in measurements:
+        fft_data = measurement.get("fft_data", [])
+        thickness, quality_score = _process_fft_to_thickness(fft_data)
+        
+        if thickness is not None and quality_score is not None:
+            # Add processed data to measurement
+            measurement["thickness"] = thickness
+            measurement["quality_score"] = quality_score
+            validated_measurements.append(measurement)
+    
+    return validated_measurements
+
+
+def _insert_cleaned_measurements(cleaned_measurements: List[dict]) -> None:
+    """
+    Insert cleaned measurements into the cleaned_measurements table.
+    
+    Args:
+        cleaned_measurements: List of dictionaries with processed measurement data
+        Must include: flight_id, raw_id (if available), timestamp, coordinates,
+                     temperature, thickness, quality_score
+    """
+    if not cleaned_measurements:
+        return
+    
+    # Prepare data for insertion
+    prepared_data = []
+    for measurement in cleaned_measurements:
+        coords = measurement["coordinates"]
+        prepared_data.append({
+            "flight_id": measurement["flight_id"],
+            "raw_id": measurement.get("raw_id", None),  # Will be None if not linked to raw
+            "timestamp": measurement["timestamp"],
+            "longitude": coords[0],
+            "latitude": coords[1],
+            "temperature": measurement["temperature"],
+            "thickness": measurement["thickness"],
+            "quality_score": measurement["quality_score"],
+            "processed_at": datetime.now(),
+        })
+    
+    with get_cursor(True) as cur:
+        psycopg2.extras.execute_batch(
+            cur,
+            """
+            INSERT INTO cleaned_measurements (flight_id, raw_id, timestamp, coordinates, temperature, thickness, quality_score, processed_at)
+            VALUES (%(flight_id)s, %(raw_id)s, %(timestamp)s, POINT(%(longitude)s, %(latitude)s), %(temperature)s, %(thickness)s, %(quality_score)s, %(processed_at)s);
+            """,
+            prepared_data,
+        )
+
+
+async def process_and_clean_csv(file: UploadFile, file_path: Path, flight_id: int) -> None:
+    """
+    Process uploaded CSV file: save, parse, insert raw data, clean/process, insert cleaned data.
+    
+    This function handles all file operations:
+    1. Saves the uploaded file to disk temporarily
+    2. Reads and parses the CSV file
+    3. Inserts rows into raw_measurements table
+    4. Cleans and processes the raw data
+    5. Inserts cleaned data into cleaned_measurements table
+    6. Deletes the CSV file after processing
+    
+    Args:
+        file: UploadFile object from FastAPI
+        file_path: Path where the file should be saved (generated by caller)
+        flight_id: The flight_id associated with this CSV data
+        
+    Raises:
+        Exception: If processing fails, the caller should handle flight deletion
+        Note: File will be deleted on both success and failure (via try/finally)
+    """
+    try:
+        # Write file content to disk
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        # Read and parse CSV file (no headers - all rows are data)
+        parsed_measurements = []
+        with open(file_path, "r", encoding="utf-8") as csvfile:
+            reader = csv.reader(csvfile)
+            
+            # Process all rows as data (CSV has no headers)
+            for row in reader:
+                if row:  # Skip empty rows
+                    try:
+                        parsed_measurements.append(_parse_csv_row(row, flight_id))
+                    except ValueError as e:
+                        # Skip invalid rows, but continue processing
+                        print(f"Warning: Skipping invalid row: {e}")
+                        continue
+        
+        if not parsed_measurements:
+            raise ValueError("CSV file is empty or contains no valid data rows")
+        
+        # Filter to keep only measurements over water (clean before inserting)
+        water_measurements = await _filter_water_measurements(parsed_measurements)
+        
+        if not water_measurements:
+            raise ValueError("No measurements found over water. All measurements were filtered out.")
+        
+        # Combine measurements within 5 meters of each other
+        combined_measurements = _combine_nearby_measurements(water_measurements, distance_threshold_m=5.0)
+        
+        if not combined_measurements:
+            raise ValueError("No measurements remaining after combination.")
+        
+        # Process FFT data: calculate thickness and validate peaks
+        # Discards measurements that don't have at least 2 peaks or where first peak <= second peak
+        validated_measurements = _process_and_validate_measurements(combined_measurements)
+        
+        if not validated_measurements:
+            raise ValueError("No measurements passed FFT validation (need at least 2 peaks with first > second).")
+        
+        # Insert validated measurements into raw_measurements table and get their IDs
+        raw_ids_map = _insert_raw_measurements_with_ids(validated_measurements)
+        
+        # Link cleaned measurements to raw measurements using raw_id
+        for i, measurement in enumerate(validated_measurements):
+            # Use the index to find corresponding raw_id from the map
+            measurement["raw_id"] = raw_ids_map[i]
+        
+        # Insert validated measurements into cleaned_measurements table
+        _insert_cleaned_measurements(validated_measurements)
+        
+    finally:
+        # Always delete the file after processing (success or failure)
+        if file_path and file_path.exists():
+            try:
+                file_path.unlink()
+            except Exception:
+                pass  # Ignore cleanup errors
+
+
+# --- Flight Endpoints ---
+
 
 @app.post("/flights")
-async def add_flight(
+async def create_flight(
     date: str = Form(...),
     location: str = Form(...),
     notes: Optional[str] = Form(None),
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
 ):
     """
-    Creates a new flight and processes the uploaded measurement file.
+    Create a new flight and process the uploaded measurement CSV file.
+    
+    - Creates a flight record in the flights table
+    - Saves the uploaded CSV file temporarily
+    - Processes the CSV to extract raw and cleaned measurements
+    - Deletes the file after processing
+    
+    If processing fails, the flight record is deleted and an error is returned.
     """
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO flights (date, location, notes) VALUES (%s, %s, %s) RETURNING flight_id;",
-        (date, location, notes)
-    )
-    flight_id = cur.fetchone()[0]
-    cur.close()
+    flight_id = None
+    
+    try:
+        # Create flight record
+        with get_cursor(True) as cur:
+            cur.execute(
+                "INSERT INTO flights (date, location, notes) VALUES (%s, %s, %s) RETURNING flight_id;",
+                (date, location, notes),
+            )
+            result = cur.fetchone()
+            flight_id = result["flight_id"]
+        
+        # Generate file path for CSV
+        file_suffix = Path(file.filename).suffix if file.filename else ".csv"
+        file_path = UPLOAD_DIR / f"flight_{flight_id}_{uuid.uuid4().hex[:8]}{file_suffix}"
+        
+        # Process the CSV file (helper handles file operations including deletion)
+        await process_and_clean_csv(file, file_path, flight_id)
+        
+        return {
+            "flight_id": flight_id,
+            "status": "created",
+            "file_received": file.filename,
+            "message": "Flight created and measurements processed successfully",
+        }
+        
+    except Exception as e:
+        # Delete flight record if processing failed
+        if flight_id:
+            try:
+                with get_cursor(True) as cur:
+                    cur.execute("DELETE FROM flights WHERE flight_id = %s;", (flight_id,))
+            except Exception:
+                pass  # Ignore cleanup errors
+        
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process flight: {str(e)}",
+        )
 
-    # Placeholder for parsing & inserting measurement data
-    process_uploaded_measurements(file, flight_id)
 
-    return {"flight_id": flight_id, "status": "added", "file_received": file.filename}
-
-
-@app.get("/cleaned/{flight_id}")
-def get_cleaned_by_flight(flight_id: int):
-    """
-    Returns all cleaned measurements associated with a specific flight.
-    """
-    cur = conn.cursor()
-    cur.execute(
-        """SELECT cleaned_id, flight_id, raw_id, timestamp, coordinates, thickness, quality_score, processed_at
-           FROM cleaned_measurements
-           WHERE flight_id = %s
-           ORDER BY cleaned_id;""",
-        (flight_id,)
-    )
-    rows = cur.fetchall()
-    cur.close()
-
-    if not rows:
-        raise HTTPException(status_code=404, detail=f"No cleaned measurements found for flight_id={flight_id}")
-
-
-    # Format results as dictionaries
+@app.get("/flights")
+def get_flights():
+    """Return all flights from the flights table."""
+    with get_cursor() as cur:
+        cur.execute("SELECT flight_id, date, location, notes FROM flights ORDER BY flight_id;")
+        rows = cur.fetchall()
+    
     return [
         {
-            "cleaned_id": r[0],
-            "flight_id": r[1],
-            "raw_id": r[2],
-            "timestamp": str(r[3]),
-            "x": r[4][0],
-            "y": r[4][1],
-            "thickness": r[5],
-            "quality_score": r[6],
-            "processed_at": str(r[7])
+            "flight_id": row["flight_id"],
+            "date": str(row["date"]),
+            "location": row["location"],
+            "notes": row["notes"],
         }
-        for r in rows
+        for row in rows
+    ]
+
+
+@app.get("/flights/{flight_id}")
+def get_flight(flight_id: int):
+    """Get a specific flight by flight_id."""
+    with get_cursor() as cur:
+        cur.execute(
+            "SELECT flight_id, date, location, notes FROM flights WHERE flight_id = %s;",
+            (flight_id,),
+        )
+        row = cur.fetchone()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Flight {flight_id} not found")
+    
+    return {
+        "flight_id": row["flight_id"],
+        "date": str(row["date"]),
+        "location": row["location"],
+        "notes": row["notes"],
+    }
+
+
+@app.delete("/flights/{flight_id}")
+def delete_flight(flight_id: int):
+    """
+    Delete a flight and all associated measurements.
+    
+    Note: Foreign key constraints will cascade delete raw_measurements
+    and cleaned_measurements associated with this flight.
+    """
+    with get_cursor(True) as cur:
+        cur.execute("DELETE FROM flights WHERE flight_id = %s RETURNING flight_id;", (flight_id,))
+        result = cur.fetchone()
+    
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Flight {flight_id} not found")
+    
+    return {"status": "deleted", "flight_id": flight_id}
+
+
+@app.delete("/flights")
+def delete_all_flights():
+    """
+    Delete all flights and all associated measurements.
+    
+    Note: Foreign key constraints will cascade delete raw_measurements
+    and cleaned_measurements associated with all flights.
+    
+    This is a destructive operation that cannot be undone.
+    """
+    with get_cursor(True) as cur:
+        # Get count before deletion
+        cur.execute("SELECT COUNT(*) as count FROM flights;")
+        count_before = cur.fetchone()["count"]
+        
+        # Delete all flights (cascade will handle measurements)
+        cur.execute("DELETE FROM flights;")
+    
+    return {
+        "status": "deleted",
+        "flights_deleted": count_before,
+        "message": f"Deleted {count_before} flight(s) and all associated measurements",
+    }
+
+
+@app.post("/flights/{flight_id}/reprocess")
+async def reprocess_flight(flight_id: int):
+    """
+    Manually trigger reprocessing of measurements for a flight.
+    
+    This endpoint allows you to re-run the processing pipeline for a flight
+    if the initial processing failed or needs to be updated.
+    
+    Note: This requires the original CSV file to still exist, or you would need
+    to reconstruct it from raw_measurements. For now, this is a placeholder.
+    """
+    # TODO: Implement reprocessing logic
+    # This might require:
+    # - Re-reading raw_measurements for the flight
+    # - Re-running the cleaning/processing logic
+    # - Updating cleaned_measurements
+    
+    raise HTTPException(
+        status_code=501,
+        detail="Reprocessing not yet implemented. This is a placeholder endpoint.",
+    )
+
+
+# --- Measurement Endpoints ---
+
+
+@app.get("/raw_measurements")
+def get_raw_measurements(flight_id: Optional[int] = Query(None, description="Filter by flight_id")):
+    """
+    Get raw measurements, optionally filtered by flight_id.
+    
+    If flight_id is provided, returns only measurements for that flight.
+    Otherwise, returns all raw measurements.
+    """
+    with get_cursor() as cur:
+        if flight_id:
+            cur.execute(
+                """
+                SELECT measurement_id, flight_id, timestamp, coordinates, temperature, 
+                       fft_data, created_at
+                FROM raw_measurements
+                WHERE flight_id = %s
+                ORDER BY measurement_id;
+                """,
+                (flight_id,),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT measurement_id, flight_id, timestamp, coordinates, temperature, 
+                       fft_data, created_at
+                FROM raw_measurements
+                ORDER BY measurement_id;
+                """
+            )
+        rows = cur.fetchall()
+    
+    return [
+        {
+            "measurement_id": row["measurement_id"],
+            "flight_id": row["flight_id"],
+            "timestamp": str(row["timestamp"]),
+            "coordinates": {"x": row["coordinates"][0], "y": row["coordinates"][1]}
+            if row["coordinates"]
+            else None,
+            "temperature": row["temperature"],
+            "fft_data": row["fft_data"],
+            "created_at": str(row["created_at"]),
+        }
+        for row in rows
+    ]
+
+
+@app.get("/cleaned_measurements")
+def get_cleaned_measurements(
+    flight_ids: Optional[str] = Query(
+        None, description="Comma-separated list of flight_ids to filter by (e.g., '1,2,3')"
+    ),
+):
+    """
+    Get cleaned measurements, optionally filtered by flight_ids.
+    
+    If flight_ids is provided (comma-separated), returns only measurements
+    for those flights. Otherwise, returns all cleaned measurements.
+    """
+    with get_cursor() as cur:
+        if flight_ids:
+            # Parse comma-separated flight_ids
+            try:
+                flight_id_list = [int(fid.strip()) for fid in flight_ids.split(",")]
+            except ValueError:
+                raise HTTPException(
+                    status_code=400, detail="Invalid flight_ids format. Use comma-separated integers."
+                )
+            
+            # Use IN clause for multiple flight_ids
+            placeholders = ",".join(["%s"] * len(flight_id_list))
+            cur.execute(
+                f"""
+                SELECT cleaned_id, flight_id, raw_id, timestamp, coordinates, temperature, 
+                       thickness, quality_score, processed_at
+                FROM cleaned_measurements
+                WHERE flight_id IN ({placeholders})
+                ORDER BY cleaned_id;
+                """,
+                flight_id_list,
+            )
+        else:
+            cur.execute(
+                """
+                SELECT cleaned_id, flight_id, raw_id, timestamp, coordinates, temperature, 
+                       thickness, quality_score, processed_at
+                FROM cleaned_measurements
+                ORDER BY cleaned_id;
+                """
+            )
+        rows = cur.fetchall()
+    
+    return [
+        {
+            "cleaned_id": row["cleaned_id"],
+            "flight_id": row["flight_id"],
+            "raw_id": row["raw_id"],
+            "timestamp": str(row["timestamp"]),
+            "coordinates": {"x": row["coordinates"][0], "y": row["coordinates"][1]}
+            if row["coordinates"]
+            else None,
+            "temperature": row["temperature"],
+            "thickness": row["thickness"],
+            "quality_score": row["quality_score"],
+            "processed_at": str(row["processed_at"]),
+        }
+        for row in rows
     ]

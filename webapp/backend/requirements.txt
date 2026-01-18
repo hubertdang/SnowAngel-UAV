@@ -3,3 +3,6 @@ uvicorn[standard]==0.24.0.post1
 psycopg2-binary==2.9.9
 python-dotenv==1.0.0
 python-multipart==0.0.6
+httpx==0.25.2
+numpy==1.24.3
+scipy==1.11.4
