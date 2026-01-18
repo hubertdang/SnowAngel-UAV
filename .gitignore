@@ -76,3 +76,8 @@ dkms.conf
 # Backend files
 /webapp/backend/.env
 /webapp/backend/venv/
+
+# Frontend build artifacts
+/webapp/frontend/node_modules/
+/webapp/frontend/dist/
+/webapp/frontend/.vite/

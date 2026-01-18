@@ -1,0 +1,66 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: snowangel
+      POSTGRES_PASSWORD: snowangel
+      POSTGRES_DB: snowangel
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./webapp/backend
+    image: snowangel-backend
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: snowangel
+      DB_USER: snowangel
+      DB_PASS: snowangel
+      CORS_ORIGINS: http://localhost:4173,http://0.0.0.0:4173,http://frontend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  seed-data:
+    image: snowangel-backend
+    command: ["python", "scripts/seed_dummy_data.py", "--count", "220", "--days", "4"]
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: snowangel
+      DB_USER: snowangel
+      DB_PASS: snowangel
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  frontend:
+    build:
+      context: ./webapp/frontend
+      args:
+        VITE_API_URL: http://backend:8000
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "4173:80"
+
+volumes:
+  pgdata:
