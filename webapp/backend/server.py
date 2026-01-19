@@ -474,8 +474,10 @@ def _combine_nearby_measurements(measurements: List[dict], distance_threshold_m:
     if not measurements:
         return []
     
+    logger.info(f"Combining nearby measurements: {len(measurements)} input, threshold: {distance_threshold_m}m")
     combined = []
     processed_indices = set()
+    cluster_sizes = []
     
     for i, measurement in enumerate(measurements):
         if i in processed_indices:
@@ -513,9 +515,15 @@ def _combine_nearby_measurements(measurements: List[dict], distance_threshold_m:
         # Combine the final cluster
         combined_measurement = _combine_measurements(cluster)
         combined.append(combined_measurement)
+        cluster_sizes.append(len(cluster))
         
         # Mark all measurements in cluster as processed
         processed_indices.update(cluster_indices)
+    
+    if cluster_sizes:
+        logger.info(f"Combined {len(measurements)} measurements into {len(combined)} clusters. "
+                   f"Cluster sizes: min={min(cluster_sizes)}, max={max(cluster_sizes)}, "
+                   f"avg={sum(cluster_sizes)/len(cluster_sizes):.1f}")
     
     return combined
 
@@ -698,6 +706,8 @@ def _process_and_validate_measurements(measurements: List[dict]) -> List[dict]:
         List of validated measurements with thickness and quality_score added
     """
     validated_measurements = []
+    rejected_count = 0
+    rejection_reasons = {"no_peaks": 0, "first_not_larger": 0, "invalid_range": 0}
     
     for measurement in measurements:
         fft_data = measurement.get("fft_data", [])
@@ -708,6 +718,13 @@ def _process_and_validate_measurements(measurements: List[dict]) -> List[dict]:
             measurement["thickness"] = thickness
             measurement["quality_score"] = quality_score
             validated_measurements.append(measurement)
+        else:
+            rejected_count += 1
+            # Note: _process_fft_to_thickness doesn't return rejection reason,
+            # so we can't track specific reasons without modifying it
+    
+    logger.info(f"FFT validation: {len(validated_measurements)} passed, {rejected_count} rejected "
+               f"(need 2+ peaks in 0.1-1m range, first peak > second peak)")
     
     return validated_measurements
 
@@ -796,15 +813,19 @@ async def process_and_clean_csv(file: UploadFile, file_path: Path, flight_id: in
         if not parsed_measurements:
             raise ValueError("CSV file is empty or contains no valid data rows")
         
+        logger.info(f"Step 1: Parsed {len(parsed_measurements)} measurements from CSV")
+        
         # Filter to keep only measurements over water (clean before inserting)
         # NOTE TODO TEMPORARILY DISABLED: Water check commented out due to API rate limit
         # water_measurements = await _filter_water_measurements(parsed_measurements)
         # if not water_measurements:
         #     raise ValueError("No measurements found over water. All measurements were filtered out.")
         water_measurements = parsed_measurements  # Bypass water check for testing
+        logger.info(f"Step 2: After water filter (bypassed): {len(water_measurements)} measurements")
         
         # Combine measurements within 5 meters of each other
         combined_measurements = _combine_nearby_measurements(water_measurements, distance_threshold_m=5.0)
+        logger.info(f"Step 3: After combining nearby measurements (within 5m): {len(combined_measurements)} measurements")
         
         if not combined_measurements:
             raise ValueError("No measurements remaining after combination.")
@@ -812,6 +833,7 @@ async def process_and_clean_csv(file: UploadFile, file_path: Path, flight_id: in
         # Process FFT data: calculate thickness and validate peaks
         # Discards measurements that don't have at least 2 peaks or where first peak <= second peak
         validated_measurements = _process_and_validate_measurements(combined_measurements)
+        logger.info(f"Step 4: After FFT validation (need 2+ peaks, first > second): {len(validated_measurements)} measurements")
         
         if not validated_measurements:
             raise ValueError("No measurements passed FFT validation (need at least 2 peaks with first > second).")
