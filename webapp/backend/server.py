@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import csv
+import logging
 import math
 import os
 import uuid
@@ -19,6 +20,17 @@ import psycopg2.extras
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from scipy.signal import find_peaks
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+import time
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 DB_CONFIG = {
@@ -40,6 +52,10 @@ ISITWATER_HEADERS = {
     "x-rapidapi-key": RAPIDAPI_KEY,
     "x-rapidapi-host": "isitwater-com.p.rapidapi.com",
 }
+
+# Cache for water check results to avoid redundant API calls
+# Key: (latitude, longitude) tuple, Value: bool (True if water, False if land)
+_WATER_CHECK_CACHE: dict[tuple[float, float], bool] = {}
 
 # FMCW Radar constants (from ops_serial.py)
 SAMPLING_RATE = 80000.0  # 80kHz
@@ -160,6 +176,34 @@ app.add_middleware(
 )
 
 
+class LoggingMiddleware(BaseHTTPMiddleware):
+    """Middleware to log all HTTP requests."""
+    
+    async def dispatch(self, request: Request, call_next):
+        start_time = time.time()
+        method = request.method
+        path = request.url.path
+        
+        # Log incoming request
+        logger.info(f"→ {method} {path}")
+        
+        try:
+            response = await call_next(request)
+            process_time = time.time() - start_time
+            status_code = response.status_code
+            
+            # Log response
+            logger.info(f"← {method} {path} - {status_code} ({process_time:.3f}s)")
+            return response
+        except Exception as e:
+            process_time = time.time() - start_time
+            logger.error(f"✗ {method} {path} - ERROR after {process_time:.3f}s: {type(e).__name__} - {e}")
+            raise
+
+
+app.add_middleware(LoggingMiddleware)
+
+
 @app.on_event("startup")
 def startup_event() -> None:
     """Initialize database tables on application startup."""
@@ -220,6 +264,7 @@ def get_summary(flight_id: Optional[int] = Query(None, description="Filter by fl
 async def _is_water(latitude: float, longitude: float) -> bool:
     """
     Check if coordinates are over water using isitwater API.
+    Uses a cache to avoid redundant API calls for the same coordinates.
     
     Args:
         latitude: Latitude coordinate
@@ -232,8 +277,18 @@ async def _is_water(latitude: float, longitude: float) -> bool:
     if not RAPIDAPI_KEY:
         # If no API key, skip filtering (return True to allow all measurements)
         # In production, you might want to raise an error instead
+        logger.debug(f"Skipping water check for ({latitude}, {longitude}): No API key configured")
         return True
     
+    # Check cache first to avoid redundant API calls
+    coord_key = (latitude, longitude)
+    if coord_key in _WATER_CHECK_CACHE:
+        cached_result = _WATER_CHECK_CACHE[coord_key]
+        logger.info(f"Water check CACHE HIT for ({latitude}, {longitude}): {'water' if cached_result else 'land'}")
+        return cached_result
+    
+    # Make API call if not in cache
+    logger.info(f"Water check API CALL for ({latitude}, {longitude})")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
@@ -243,17 +298,29 @@ async def _is_water(latitude: float, longitude: float) -> bool:
             )
             response.raise_for_status()
             data = response.json()
-            return data.get("water", False)
+            is_water = data.get("water", False)
+            # Cache the result
+            _WATER_CHECK_CACHE[coord_key] = is_water
+            result_type = "water" if is_water else "land"
+            logger.info(f"Water check API SUCCESS for ({latitude}, {longitude}): {result_type} (cached)")
+            return is_water
+    except httpx.HTTPStatusError as e:
+        # HTTP error (e.g., 429 rate limit)
+        logger.error(f"Water check API HTTP ERROR for ({latitude}, {longitude}): {e.response.status_code} - {e}")
+        _WATER_CHECK_CACHE[coord_key] = False
+        return False
     except Exception as e:
         # On API error, be conservative: don't insert (return False)
-        # Log the error in production
-        print(f"Error checking water for coordinates ({latitude}, {longitude}): {e}")
+        # Cache the error result to avoid retrying failed coordinates
+        logger.error(f"Water check API ERROR for ({latitude}, {longitude}): {type(e).__name__} - {e}")
+        _WATER_CHECK_CACHE[coord_key] = False
         return False
 
 
 async def _filter_water_measurements(measurements: List[dict]) -> List[dict]:
     """
     Filter measurements to keep only those over water.
+    Uses caching to avoid redundant API calls for duplicate coordinates.
     
     Args:
         measurements: List of parsed measurement dictionaries
@@ -261,19 +328,39 @@ async def _filter_water_measurements(measurements: List[dict]) -> List[dict]:
     Returns:
         List of measurements that are over water
     """
+    logger.info(f"Starting water filter for {len(measurements)} measurements")
     water_measurements = []
+    last_coord_key = None
+    api_call_count = 0
+    cache_hit_count = 0
     
     for measurement in measurements:
         coords = measurement["coordinates"]
         latitude = coords[1]
         longitude = coords[0]
+        coord_key = (latitude, longitude)
+        
+        # Check if we need to make an API call (not in cache)
+        # Only delay before making API calls, not for cached results
+        needs_api_call = coord_key not in _WATER_CHECK_CACHE
+        
+        if needs_api_call:
+            api_call_count += 1
+            if coord_key != last_coord_key:
+                # Add delay before making API call to avoid rate limiting
+                # (plan allows 1 request per second, using 3s to be safe)
+                logger.debug(f"Rate limiting delay: 3s before API call for ({latitude}, {longitude})")
+                await asyncio.sleep(3)
+        else:
+            cache_hit_count += 1
         
         if await _is_water(latitude, longitude):
             water_measurements.append(measurement)
         
-        # Add small delay to avoid rate limiting (adjust as needed)
-        await asyncio.sleep(1)  # 1s delay between API calls
+        last_coord_key = coord_key
     
+    logger.info(f"Water filter complete: {len(water_measurements)}/{len(measurements)} measurements over water "
+                f"(API calls: {api_call_count}, cache hits: {cache_hit_count}, cache size: {len(_WATER_CHECK_CACHE)})")
     return water_measurements
 
 
@@ -710,10 +797,11 @@ async def process_and_clean_csv(file: UploadFile, file_path: Path, flight_id: in
             raise ValueError("CSV file is empty or contains no valid data rows")
         
         # Filter to keep only measurements over water (clean before inserting)
-        water_measurements = await _filter_water_measurements(parsed_measurements)
-        
-        if not water_measurements:
-            raise ValueError("No measurements found over water. All measurements were filtered out.")
+        # NOTE TODO TEMPORARILY DISABLED: Water check commented out due to API rate limit
+        # water_measurements = await _filter_water_measurements(parsed_measurements)
+        # if not water_measurements:
+        #     raise ValueError("No measurements found over water. All measurements were filtered out.")
+        water_measurements = parsed_measurements  # Bypass water check for testing
         
         # Combine measurements within 5 meters of each other
         combined_measurements = _combine_nearby_measurements(water_measurements, distance_threshold_m=5.0)
@@ -929,8 +1017,9 @@ def get_raw_measurements(flight_id: Optional[int] = Query(None, description="Fil
         if flight_id:
             cur.execute(
                 """
-                SELECT measurement_id, flight_id, timestamp, coordinates, temperature, 
-                       fft_data, created_at
+                SELECT measurement_id, flight_id, timestamp, 
+                       coordinates::text AS coordinates_text,
+                       temperature, fft_data, created_at
                 FROM raw_measurements
                 WHERE flight_id = %s
                 ORDER BY measurement_id;
@@ -940,22 +1029,31 @@ def get_raw_measurements(flight_id: Optional[int] = Query(None, description="Fil
         else:
             cur.execute(
                 """
-                SELECT measurement_id, flight_id, timestamp, coordinates, temperature, 
-                       fft_data, created_at
+                SELECT measurement_id, flight_id, timestamp, 
+                       coordinates::text AS coordinates_text,
+                       temperature, fft_data, created_at
                 FROM raw_measurements
                 ORDER BY measurement_id;
                 """
             )
         rows = cur.fetchall()
     
+    def parse_point(point_text: str) -> dict:
+        """Parse PostgreSQL POINT text representation (x,y) to dict."""
+        if not point_text:
+            return None
+        # POINT format is "(x,y)" - remove parentheses and split
+        coords = point_text.strip("()").split(",")
+        if len(coords) == 2:
+            return {"x": float(coords[0]), "y": float(coords[1])}
+        return None
+    
     return [
         {
             "measurement_id": row["measurement_id"],
             "flight_id": row["flight_id"],
             "timestamp": str(row["timestamp"]),
-            "coordinates": {"x": row["coordinates"][0], "y": row["coordinates"][1]}
-            if row["coordinates"]
-            else None,
+            "coordinates": parse_point(row["coordinates_text"]),
             "temperature": row["temperature"],
             "fft_data": row["fft_data"],
             "created_at": str(row["created_at"]),
@@ -990,8 +1088,9 @@ def get_cleaned_measurements(
             placeholders = ",".join(["%s"] * len(flight_id_list))
             cur.execute(
                 f"""
-                SELECT cleaned_id, flight_id, raw_id, timestamp, coordinates, temperature, 
-                       thickness, quality_score, processed_at
+                SELECT cleaned_id, flight_id, raw_id, timestamp, 
+                       coordinates::text AS coordinates_text,
+                       temperature, thickness, quality_score, processed_at
                 FROM cleaned_measurements
                 WHERE flight_id IN ({placeholders})
                 ORDER BY cleaned_id;
@@ -1001,13 +1100,24 @@ def get_cleaned_measurements(
         else:
             cur.execute(
                 """
-                SELECT cleaned_id, flight_id, raw_id, timestamp, coordinates, temperature, 
-                       thickness, quality_score, processed_at
+                SELECT cleaned_id, flight_id, raw_id, timestamp, 
+                       coordinates::text AS coordinates_text,
+                       temperature, thickness, quality_score, processed_at
                 FROM cleaned_measurements
                 ORDER BY cleaned_id;
                 """
             )
         rows = cur.fetchall()
+    
+    def parse_point(point_text: str) -> dict:
+        """Parse PostgreSQL POINT text representation (x,y) to dict."""
+        if not point_text:
+            return None
+        # POINT format is "(x,y)" - remove parentheses and split
+        coords = point_text.strip("()").split(",")
+        if len(coords) == 2:
+            return {"x": float(coords[0]), "y": float(coords[1])}
+        return None
     
     return [
         {
@@ -1015,9 +1125,7 @@ def get_cleaned_measurements(
             "flight_id": row["flight_id"],
             "raw_id": row["raw_id"],
             "timestamp": str(row["timestamp"]),
-            "coordinates": {"x": row["coordinates"][0], "y": row["coordinates"][1]}
-            if row["coordinates"]
-            else None,
+            "coordinates": parse_point(row["coordinates_text"]),
             "temperature": row["temperature"],
             "thickness": row["thickness"],
             "quality_score": row["quality_score"],

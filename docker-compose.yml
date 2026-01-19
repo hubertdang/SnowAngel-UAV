@@ -31,6 +31,10 @@ services:
       DB_PASS: snowangel
       CORS_ORIGINS: http://localhost:4173,http://0.0.0.0:4173,http://frontend
       RAPIDAPI_KEY: 501f6d6309msh102fb6a3d55399cp1589e0jsn5cd55ae4f394
+    volumes:
+      # Mount code for live reloading during development
+      - ./webapp/backend/server.py:/app/server.py
+      - ./webapp/backend/scripts:/app/scripts
     depends_on:
       postgres:
         condition: service_healthy
