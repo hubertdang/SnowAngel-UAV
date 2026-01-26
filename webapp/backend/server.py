@@ -120,7 +120,38 @@ def ensure_tables() -> None:
             """
         )
 
+        # Create cleaned_measurements table first (raw_measurements references it)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cleaned_measurements (
+                cleaned_id SERIAL PRIMARY KEY,
+                flight_id INTEGER NOT NULL REFERENCES flights(flight_id) ON DELETE CASCADE,
+                timestamp TIMESTAMP NOT NULL,
+                coordinates POINT,
+                temperature FLOAT,
+                thickness FLOAT,
+                quality_score FLOAT,
+                processed_at TIMESTAMP
+            );
+            """
+        )
+        
+        # Migration: Remove raw_id column from cleaned_measurements if it exists (old schema)
+        cur.execute("""
+            DO $$ 
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'cleaned_measurements' 
+                    AND column_name = 'raw_id'
+                ) THEN
+                    ALTER TABLE cleaned_measurements DROP COLUMN raw_id CASCADE;
+                END IF;
+            END $$;
+        """)
+
         # Create raw_measurements table
+        # cleaned_id is nullable - NULL means this raw measurement wasn't included in any cleaned measurement
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS raw_measurements (
@@ -134,33 +165,31 @@ def ensure_tables() -> None:
             );
             """
         )
-
-        # Create cleaned_measurements table
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS cleaned_measurements (
-                cleaned_id SERIAL PRIMARY KEY,
-                flight_id INTEGER NOT NULL REFERENCES flights(flight_id) ON DELETE CASCADE,
-                raw_id INTEGER NOT NULL REFERENCES raw_measurements(measurement_id) ON DELETE CASCADE,
-                timestamp TIMESTAMP NOT NULL,
-                coordinates POINT,
-                temperature FLOAT,
-                thickness FLOAT,
-                quality_score FLOAT,
-                processed_at TIMESTAMP
-            );
-            """
-        )
+        
+        # Migration: Add cleaned_id column to raw_measurements if it doesn't exist
+        cur.execute("""
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'raw_measurements' 
+                    AND column_name = 'cleaned_id'
+                ) THEN
+                    ALTER TABLE raw_measurements 
+                    ADD COLUMN cleaned_id INTEGER REFERENCES cleaned_measurements(cleaned_id) ON DELETE SET NULL;
+                END IF;
+            END $$;
+        """)
 
         # Create indexes for better query performance
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_raw_measurements_flight_id ON raw_measurements (flight_id);"
         )
         cur.execute(
-            "CREATE INDEX IF NOT EXISTS idx_cleaned_measurements_flight_id ON cleaned_measurements (flight_id);"
+            "CREATE INDEX IF NOT EXISTS idx_raw_measurements_cleaned_id ON raw_measurements (cleaned_id);"
         )
         cur.execute(
-            "CREATE INDEX IF NOT EXISTS idx_cleaned_measurements_raw_id ON cleaned_measurements (raw_id);"
+            "CREATE INDEX IF NOT EXISTS idx_cleaned_measurements_flight_id ON cleaned_measurements (flight_id);"
         )
 
 
@@ -443,14 +472,110 @@ def _combine_measurements(measurements: List[dict]) -> dict:
     # Use the first measurement's flight_id (all should be the same)
     flight_id = measurements[0]["flight_id"]
     
-    return {
+    # Strategy: Average FFT data, then reprocess (better signal processing)
+    # This reduces noise and gives more accurate peak detection on the averaged signal
+    thickness, quality_score = _process_fft_to_thickness(combined_fft)
+    
+    # Fallback: If averaged FFT fails validation, average the individual thickness values
+    # This can happen if averaging smooths out peaks too much
+    if thickness is None or quality_score is None:
+        # Fallback to averaging individual thickness/quality_score values
+        thicknesses = [m.get("thickness") for m in measurements if m.get("thickness") is not None]
+        quality_scores = [m.get("quality_score") for m in measurements if m.get("quality_score") is not None]
+        
+        if thicknesses and quality_scores:
+            thickness = sum(thicknesses) / len(thicknesses)
+            quality_score = sum(quality_scores) / len(quality_scores)
+            logger.debug(f"Fell back to averaging thickness values (averaged FFT failed validation)")
+        else:
+            # No valid thickness values to average
+            return None
+    
+    combined_measurement = {
         "flight_id": flight_id,
         "timestamp": earliest_timestamp,
         "coordinates": (avg_lon, avg_lat),
         "temperature": avg_temp,
         "fft_data": combined_fft,
+        "thickness": thickness,
+        "quality_score": quality_score,
         "created_at": datetime.now(),
     }
+    
+    return combined_measurement
+
+
+def _combine_same_coordinates(measurements: List[dict]) -> List[dict]:
+    """
+    Combine measurements that have identical coordinates (exact match).
+    Only measurements with the exact same (longitude, latitude) are combined.
+    
+    Args:
+        measurements: List of measurement dictionaries (should already be FFT-validated)
+        
+    Returns:
+        List of combined measurements
+    """
+    if not measurements:
+        return []
+    
+    logger.info(f"Combining measurements with identical coordinates: {len(measurements)} input")
+    
+    # Group measurements by their coordinates
+    coord_groups = {}
+    for measurement in measurements:
+        coords = measurement["coordinates"]
+        # Use tuple as key for exact coordinate matching
+        coord_key = (coords[0], coords[1])
+        
+        if coord_key not in coord_groups:
+            coord_groups[coord_key] = []
+        coord_groups[coord_key].append(measurement)
+    
+    # Combine measurements within each coordinate group
+    combined = []
+    cluster_sizes = []
+    failed_after_combining = 0
+    
+    for coord_key, group in coord_groups.items():
+        if len(group) == 1:
+            # Single measurement at this coordinate, no combining needed
+            # It already has thickness and quality_score from FFT validation
+            measurement = group[0]
+            # Track which raw measurement IDs went into this cleaned measurement
+            raw_id = measurement.get("_raw_measurement_id")
+            if raw_id is not None:
+                measurement["_source_raw_ids"] = [raw_id]
+            else:
+                logger.warning(f"Single measurement at {coord_key} has no _raw_measurement_id")
+                measurement["_source_raw_ids"] = []
+            combined.append(measurement)
+            cluster_sizes.append(1)
+        else:
+            # Multiple measurements at same coordinate, combine them
+            combined_measurement = _combine_measurements(group)
+            # Verify that combined measurement is valid (has thickness/quality_score or None if failed)
+            if combined_measurement is not None and "thickness" in combined_measurement and "quality_score" in combined_measurement:
+                # Track which raw measurement IDs went into this combined cleaned measurement
+                combined_measurement["_source_raw_ids"] = [
+                    m.get("_raw_measurement_id") for m in group 
+                    if m.get("_raw_measurement_id") is not None
+                ]
+                combined.append(combined_measurement)
+                cluster_sizes.append(len(group))
+            else:
+                # Combined FFT failed validation and fallback also failed - skip this combined measurement
+                failed_after_combining += 1
+                logger.warning(f"Combined measurement failed after combining {len(group)} measurements at {coord_key} (both FFT reprocessing and thickness averaging failed)")
+    
+    if cluster_sizes:
+        logger.info(f"Combined {len(measurements)} measurements into {len(combined)} groups. "
+                   f"Group sizes: min={min(cluster_sizes)}, max={max(cluster_sizes)}, "
+                   f"avg={sum(cluster_sizes)/len(cluster_sizes):.1f}")
+        if failed_after_combining > 0:
+            logger.warning(f"{failed_after_combining} combined measurements failed FFT validation after combining")
+    
+    return combined
 
 
 def _combine_nearby_measurements(measurements: List[dict], distance_threshold_m: float = 5.0) -> List[dict]:
@@ -463,6 +588,9 @@ def _combine_nearby_measurements(measurements: List[dict], distance_threshold_m:
     - Start with A, find B within 5m, combine into AB
     - Check if C is within 5m of AB's new coordinates
     - If yes, add C; if no, leave C separate
+    
+    NOTE: This function is kept for reference but is no longer used in the pipeline.
+    The pipeline now uses _combine_same_coordinates() instead.
     
     Args:
         measurements: List of measurement dictionaries
@@ -587,6 +715,7 @@ def _parse_csv_row(row: List[str], flight_id: int) -> dict:
 def _insert_raw_measurements_with_ids(raw_measurements: List[dict]) -> List[int]:
     """
     Insert parsed raw measurements into the raw_measurements table and return their IDs.
+    Inserts ALL measurements (before validation) to preserve complete data.
     
     Args:
         raw_measurements: List of dictionaries containing measurement data
@@ -608,7 +737,7 @@ def _insert_raw_measurements_with_ids(raw_measurements: List[dict]) -> List[int]
             "latitude": coords[1],
             "temperature": measurement["temperature"],
             "fft_data": measurement["fft_data"],
-            "created_at": measurement["created_at"],
+            "created_at": measurement.get("created_at", datetime.now()),
         })
     
     measurement_ids = []
@@ -729,17 +858,20 @@ def _process_and_validate_measurements(measurements: List[dict]) -> List[dict]:
     return validated_measurements
 
 
-def _insert_cleaned_measurements(cleaned_measurements: List[dict]) -> None:
+def _insert_cleaned_measurements(cleaned_measurements: List[dict]) -> List[int]:
     """
     Insert cleaned measurements into the cleaned_measurements table.
     
     Args:
         cleaned_measurements: List of dictionaries with processed measurement data
-        Must include: flight_id, raw_id (if available), timestamp, coordinates,
-                     temperature, thickness, quality_score
+        Must include: flight_id, timestamp, coordinates, temperature, thickness, quality_score
+        May include: raw_measurement_ids (list of raw measurement IDs that were combined)
+        
+    Returns:
+        List of cleaned_id values in the same order as input measurements
     """
     if not cleaned_measurements:
-        return
+        return []
     
     # Prepare data for insertion
     prepared_data = []
@@ -747,7 +879,6 @@ def _insert_cleaned_measurements(cleaned_measurements: List[dict]) -> None:
         coords = measurement["coordinates"]
         prepared_data.append({
             "flight_id": measurement["flight_id"],
-            "raw_id": measurement.get("raw_id", None),  # Will be None if not linked to raw
             "timestamp": measurement["timestamp"],
             "longitude": coords[0],
             "latitude": coords[1],
@@ -757,14 +888,44 @@ def _insert_cleaned_measurements(cleaned_measurements: List[dict]) -> None:
             "processed_at": datetime.now(),
         })
     
+    cleaned_ids = []
     with get_cursor(True) as cur:
-        psycopg2.extras.execute_batch(
-            cur,
-            """
-            INSERT INTO cleaned_measurements (flight_id, raw_id, timestamp, coordinates, temperature, thickness, quality_score, processed_at)
-            VALUES (%(flight_id)s, %(raw_id)s, %(timestamp)s, POINT(%(longitude)s, %(latitude)s), %(temperature)s, %(thickness)s, %(quality_score)s, %(processed_at)s);
+        for data in prepared_data:
+            cur.execute(
+                """
+                INSERT INTO cleaned_measurements (flight_id, timestamp, coordinates, temperature, thickness, quality_score, processed_at)
+                VALUES (%(flight_id)s, %(timestamp)s, POINT(%(longitude)s, %(latitude)s), %(temperature)s, %(thickness)s, %(quality_score)s, %(processed_at)s)
+                RETURNING cleaned_id;
+                """,
+                data,
+            )
+            result = cur.fetchone()
+            cleaned_ids.append(result["cleaned_id"])
+    
+    return cleaned_ids
+
+
+def _update_raw_measurements_with_cleaned_id(raw_measurement_ids: List[int], cleaned_id: int) -> None:
+    """
+    Update raw measurements to link them to a cleaned measurement.
+    
+    Args:
+        raw_measurement_ids: List of raw measurement IDs that were combined into this cleaned measurement
+        cleaned_id: The cleaned_id to link them to
+    """
+    if not raw_measurement_ids:
+        return
+    
+    with get_cursor(True) as cur:
+        # Update all raw measurements to point to this cleaned_id
+        placeholders = ",".join(["%s"] * len(raw_measurement_ids))
+        cur.execute(
+            f"""
+            UPDATE raw_measurements 
+            SET cleaned_id = %s
+            WHERE measurement_id IN ({placeholders});
             """,
-            prepared_data,
+            [cleaned_id] + raw_measurement_ids,
         )
 
 
@@ -823,31 +984,62 @@ async def process_and_clean_csv(file: UploadFile, file_path: Path, flight_id: in
         water_measurements = parsed_measurements  # Bypass water check for testing
         logger.info(f"Step 2: After water filter (bypassed): {len(water_measurements)} measurements")
         
-        # Combine measurements within 5 meters of each other
-        combined_measurements = _combine_nearby_measurements(water_measurements, distance_threshold_m=5.0)
-        logger.info(f"Step 3: After combining nearby measurements (within 5m): {len(combined_measurements)} measurements")
+        # Insert ALL parsed measurements into raw_measurements FIRST (before validation/combining)
+        # This preserves complete data even if some measurements fail validation
+        # We do this early so we can track raw_measurement_id through the validation process
+        logger.info(f"Step 2.5: Inserting all {len(water_measurements)} measurements into raw_measurements table...")
+        raw_measurement_ids = _insert_raw_measurements_with_ids(water_measurements)
         
-        if not combined_measurements:
-            raise ValueError("No measurements remaining after combination.")
+        # Create a mapping from measurement index to raw_measurement_id
+        # This will be used later to link raw measurements to cleaned measurements
+        for i, measurement in enumerate(water_measurements):
+            measurement["_raw_measurement_id"] = raw_measurement_ids[i]
         
-        # Process FFT data: calculate thickness and validate peaks
+        # Process FFT data FIRST: calculate thickness and validate peaks
+        # This filters out bad measurements before they can contaminate good ones through averaging
         # Discards measurements that don't have at least 2 peaks or where first peak <= second peak
-        validated_measurements = _process_and_validate_measurements(combined_measurements)
-        logger.info(f"Step 4: After FFT validation (need 2+ peaks, first > second): {len(validated_measurements)} measurements")
+        # Note: validated_measurements are references to water_measurements, so they'll have _raw_measurement_id
+        validated_measurements = _process_and_validate_measurements(water_measurements)
+        logger.info(f"Step 3: After FFT validation (need 2+ peaks, first > second): {len(validated_measurements)} measurements")
         
         if not validated_measurements:
             raise ValueError("No measurements passed FFT validation (need at least 2 peaks with first > second).")
         
-        # Insert validated measurements into raw_measurements table and get their IDs
-        raw_ids_map = _insert_raw_measurements_with_ids(validated_measurements)
+        # Combine measurements with identical coordinates only (not nearby, exact match)
+        # validated_measurements should have _raw_measurement_id since they reference water_measurements
+        combined_measurements = _combine_same_coordinates(validated_measurements)
+        logger.info(f"Step 4: After combining identical coordinates: {len(combined_measurements)} measurements")
         
-        # Link cleaned measurements to raw measurements using raw_id
-        for i, measurement in enumerate(validated_measurements):
-            # Use the index to find corresponding raw_id from the map
-            measurement["raw_id"] = raw_ids_map[i]
+        if not combined_measurements:
+            raise ValueError("No measurements remaining after combining identical coordinates.")
         
-        # Insert validated measurements into cleaned_measurements table
-        _insert_cleaned_measurements(validated_measurements)
+        # Insert cleaned measurements and get their IDs
+        cleaned_ids = _insert_cleaned_measurements(combined_measurements)
+        
+        # Update raw_measurements to link them to cleaned_measurements via cleaned_id
+        # For each combined measurement, find all raw measurements that went into it
+        linked_count = 0
+        for i, cleaned_measurement in enumerate(combined_measurements):
+            cleaned_id = cleaned_ids[i]
+            
+            # Get the raw measurement IDs that were combined into this cleaned measurement
+            # The combined measurement should have a list of source measurements
+            raw_ids_for_this_cleaned = cleaned_measurement.get("_source_raw_ids", [])
+            
+            if raw_ids_for_this_cleaned:
+                # Filter out None values (in case some measurements didn't have _raw_measurement_id)
+                raw_ids_for_this_cleaned = [rid for rid in raw_ids_for_this_cleaned if rid is not None]
+                
+                if raw_ids_for_this_cleaned:
+                    _update_raw_measurements_with_cleaned_id(raw_ids_for_this_cleaned, cleaned_id)
+                    linked_count += len(raw_ids_for_this_cleaned)
+                    logger.info(f"Linked cleaned_id {cleaned_id} to {len(raw_ids_for_this_cleaned)} raw measurements: {raw_ids_for_this_cleaned}")
+                else:
+                    logger.warning(f"Cleaned measurement {cleaned_id} has _source_raw_ids but all are None - check if _raw_measurement_id was set")
+            else:
+                logger.warning(f"Cleaned measurement {cleaned_id} has no _source_raw_ids - cannot link to raw measurements. Measurement keys: {list(cleaned_measurement.keys())}")
+        
+        logger.info(f"Step 5: Inserted {len(combined_measurements)} cleaned measurements, linked {linked_count} raw measurements")
         
     finally:
         # Always delete the file after processing (success or failure)
@@ -1039,7 +1231,7 @@ def get_raw_measurements(flight_id: Optional[int] = Query(None, description="Fil
         if flight_id:
             cur.execute(
                 """
-                SELECT measurement_id, flight_id, timestamp, 
+                SELECT measurement_id, flight_id, cleaned_id, timestamp, 
                        coordinates::text AS coordinates_text,
                        temperature, fft_data, created_at
                 FROM raw_measurements
@@ -1051,7 +1243,7 @@ def get_raw_measurements(flight_id: Optional[int] = Query(None, description="Fil
         else:
             cur.execute(
                 """
-                SELECT measurement_id, flight_id, timestamp, 
+                SELECT measurement_id, flight_id, cleaned_id, timestamp, 
                        coordinates::text AS coordinates_text,
                        temperature, fft_data, created_at
                 FROM raw_measurements
@@ -1074,6 +1266,7 @@ def get_raw_measurements(flight_id: Optional[int] = Query(None, description="Fil
         {
             "measurement_id": row["measurement_id"],
             "flight_id": row["flight_id"],
+            "cleaned_id": row["cleaned_id"],
             "timestamp": str(row["timestamp"]),
             "coordinates": parse_point(row["coordinates_text"]),
             "temperature": row["temperature"],
@@ -1110,23 +1303,29 @@ def get_cleaned_measurements(
             placeholders = ",".join(["%s"] * len(flight_id_list))
             cur.execute(
                 f"""
-                SELECT cleaned_id, flight_id, raw_id, timestamp, 
-                       coordinates::text AS coordinates_text,
-                       temperature, thickness, quality_score, processed_at
-                FROM cleaned_measurements
-                WHERE flight_id IN ({placeholders})
-                ORDER BY cleaned_id;
+                SELECT c.cleaned_id, c.flight_id, c.timestamp, 
+                       c.coordinates::text AS coordinates_text,
+                       c.temperature, c.thickness, c.quality_score, c.processed_at,
+                       COALESCE(COUNT(r.measurement_id), 0) AS raw_count
+                FROM cleaned_measurements c
+                LEFT JOIN raw_measurements r ON r.cleaned_id = c.cleaned_id
+                WHERE c.flight_id IN ({placeholders})
+                GROUP BY c.cleaned_id
+                ORDER BY c.cleaned_id;
                 """,
                 flight_id_list,
             )
         else:
             cur.execute(
                 """
-                SELECT cleaned_id, flight_id, raw_id, timestamp, 
-                       coordinates::text AS coordinates_text,
-                       temperature, thickness, quality_score, processed_at
-                FROM cleaned_measurements
-                ORDER BY cleaned_id;
+                SELECT c.cleaned_id, c.flight_id, c.timestamp, 
+                       c.coordinates::text AS coordinates_text,
+                       c.temperature, c.thickness, c.quality_score, c.processed_at,
+                       COALESCE(COUNT(r.measurement_id), 0) AS raw_count
+                FROM cleaned_measurements c
+                LEFT JOIN raw_measurements r ON r.cleaned_id = c.cleaned_id
+                GROUP BY c.cleaned_id
+                ORDER BY c.cleaned_id;
                 """
             )
         rows = cur.fetchall()
@@ -1145,13 +1344,13 @@ def get_cleaned_measurements(
         {
             "cleaned_id": row["cleaned_id"],
             "flight_id": row["flight_id"],
-            "raw_id": row["raw_id"],
             "timestamp": str(row["timestamp"]),
             "coordinates": parse_point(row["coordinates_text"]),
             "temperature": row["temperature"],
             "thickness": row["thickness"],
             "quality_score": row["quality_score"],
             "processed_at": str(row["processed_at"]),
+            "raw_count": row["raw_count"],
         }
         for row in rows
     ]
