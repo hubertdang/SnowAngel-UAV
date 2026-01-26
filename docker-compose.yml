@@ -36,20 +36,6 @@ services:
     ports:
       - "8000:8000"
 
-  seed-data:
-    image: snowangel-backend
-    command: ["python", "scripts/seed_dummy_data.py", "--count", "220", "--days", "4"]
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: snowangel
-      DB_USER: snowangel
-      DB_PASS: snowangel
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
-
   frontend:
     build:
       context: ./webapp/frontend
