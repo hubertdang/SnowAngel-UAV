@@ -273,7 +273,7 @@ void persist_to_csv(double lat, double lon, double tmp, char *waveform)
 
 enum board_state board_fsm_stationary()
 {
-	constexpr int NUM_RADAR_READS_PER_STOP = 10;
+	constexpr int NUM_RADAR_READS_PER_STOP = 20;
 
 	usleep(STABLIZATION_TIME_USEC); // Extra time to let the drone settle before transmitting radar
 
