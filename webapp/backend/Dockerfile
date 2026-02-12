@@ -8,7 +8,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY server.py ./
+COPY temp_server.py ./
 COPY scripts ./scripts
 
 EXPOSE 8000

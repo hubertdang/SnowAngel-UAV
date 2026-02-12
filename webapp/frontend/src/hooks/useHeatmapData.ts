@@ -5,6 +5,7 @@ export interface HeatPoint {
   lat: number;
   lng: number;
   thickness_cm: number;
+  temperature_c?: number | null;
   confidence_score: number;
   measured_at: string;
   notes?: string | null;

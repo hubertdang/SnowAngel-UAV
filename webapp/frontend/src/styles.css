@@ -146,22 +146,38 @@ button {
 .legend {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.6rem;
   font-size: 0.95rem;
 }
 
-.legend-scale {
+.legend-bands {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.legend-item {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-.scale-bar {
-  width: 220px;
-  height: 12px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: linear-gradient(90deg, #1d70b8 0%, #3dd598 40%, #f7b733 60%, #fc4a1a 80%, #b40000 100%);
+.legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.legend-swatch.red {
+  background: #C62828;
+}
+
+.legend-swatch.yellow {
+  background: #F9A825;
+}
+
+.legend-swatch.green {
+  background: #2E7D32;
 }
 
 .status-row {
@@ -203,7 +219,7 @@ button {
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  z-index: 50;
+  z-index: 1200;
 }
 
 .modal {
@@ -227,6 +243,39 @@ button {
 
 .file-input input {
   display: none;
+}
+
+.text-input {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.85rem;
+  color: #1e293b;
+  font-size: 0.95rem;
+}
+
+.text-input input {
+  border: 1px solid #cbd5f5;
+  border-radius: 10px;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.95rem;
+}
+
+.text-input input:focus {
+  outline: 2px solid rgba(22, 163, 74, 0.35);
+  border-color: #16a34a;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  color: #1e293b;
+  font-size: 0.95rem;
+}
+
+.checkbox-row input {
+  accent-color: #15803d;
 }
 
 .modal-actions {
